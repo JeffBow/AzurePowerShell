@@ -1,23 +1,87 @@
-# You've added your first Readme file!
-A README.md file is intended to quickly orient readers to what your project can do.  New to Markdown? [Learn more](https://go.microsoft.com/fwlink/p/?LinkId=524306&amp;clcid=0x409)
-## Edit this README and commit your change to a topic branch
-In Git, branches are cheap.  You should use them whenever you're making changes to your repository.  Edit this file by clicking on the edit icon.
-Then make some changes to this README file.
-&gt; Make some **edits** to _this_ blockquote
-When you are done, click the dropdown arrow next to the save button - that will allow you to commit your changes to a new branch.
-## Create a pull request to contribute your changes back into master
-Pull requests are the way to move changes from a topic branch back into the master branch.
-Click on the **Pull Requests** page in the **CODE** hub, then click "New Pull Request" to create a new pull request from your topic branch to the master branch.
-When you are done adding details, click "Create Pull request". Once a pull request is sent, reviewers can see your changes, recommend modifications, or even push follow-up commits.
-First time creating a pull request?  [Learn more](https://go.microsoft.com/fwlink/?LinkId=533211&amp;clcid=0x409)
-### Congratulations! You've completed the grand tour of the CODE hub!
-# Next steps
-If you haven't already done so, [install Git](https://git-scm.com/downloads) (as well as [Git Credential Manager](https://java.visualstudio.com/Downloads/gitcredentialmanager/Index) for Linux or Mac OS)
-Choose and install one of these supported IDEs:
-* [Visual Studio](https://go.microsoft.com/fwlink/?LinkId=309297&amp;clcid=0x409&amp;slcid=0x409)
-* [Android Studio](https://developer.android.com/studio) (with [Team Services Plugin](https://java.visualstudio.com/Downloads/intellijplugin/Index))
-* [Eclipse](https://www.eclipse.org/downloads) (with [Team Explorer Everywhere](https://java.visualstudio.com/Downloads/eclipseplugin/Index))
-* [IntelliJ IDEA](https://www.jetbrains.com/idea/download) (with [Team Services Plugin](https://java.visualstudio.com/Downloads/intellijplugin/Index))
-* [Visual Studio Code](https://code.visualstudio.com/Download) (with [Team Services Extension](https://java.visualstudio.com/Downloads/visualstudiocode/Index))
-Then clone this repo to your local machine to get started with your own project.
-Happy coding!
+
+# Azure Resource Manager Script Samples
+
+## Synopsis of Sample Scripts
+
+* **Copy-AzureRMresourceGroup.ps1** - Copies resources from one resource group to another in a different Azure Subscription AND Tenant
+
+* **Clone-AzureRMresourceGroup.ps1** - Copies resources from one resource group to a new resource group in the same Azure ubscription and Tenant
+
+* **Backup-AzureRMvm.ps1** - Backs up VHDs of each VM in a resource group to a defined container
+
+* **Restore-AzureRMvm.ps1** - Restores a VM from a backed up VHD created by the above script. Not recommended in production environments
+
+* **Start-AzureV2vm.ps1** -  Interactive PowerShell workflow that starts all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount 
+
+* **Stop-AzureV2vm.ps1**  - Interactive PowerShell workflow that stops all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount
+
+* **Stop-AzureV2vmRunbook.ps1**  - Azure Automation Runbook that stops all VMs in a resource group. Requires AzureRunAs Connection
+
+* **New-AzureServicePrincpal.ps1** - Creates Azure AD Service Principal, associated Application ID and certificate required to use -ServicePrincipal flag of Login-AzureRMAccount
+ 
+ 
+ 
+## Contribution guide
+
+New to Git?
+-----------
+
+* Make sure you have a [GitHub account](https://github.com/signup/free).
+* Learning Git:
+    * GitHub Help: [Good Resources for Learning Git and GitHub][good-git-resources].
+    * [Git Basics](../docs/git/basics.md):
+      install and getting started.
+* [GitHub Flow Guide](https://guides.github.com/introduction/flow/):
+  step-by-step instructions of GitHub flow.
+* Review the [Contribution License Agreement][CLA] requirement.
+
+
+
+Contributing to Issues
+----------------------
+
+* Review [Issue Management][issue-management].
+* Check if the issue you are going to file already exists in our [GitHub issues][open-issue].
+* If you can't find your issue already,
+  [open a new issue](https://github.com/JeffBow/AzurePowerShell/issues/new),
+  making sure to follow the directions as best you can.
+* If the issue is marked as [`0 - Backlog`][help-wanted-issue],
+  the community code maintainers are looking for help with the issue.
+
+### Forks and Pull Requests
+
+GitHub fosters collaboration through the notion of [pull requests][using-prs].
+On GitHub, anyone can [fork][fork-a-repo] an existing repository
+into their own user account, where they can make private changes to their fork.
+To contribute these changes back into the original repository,
+a user simply creates a pull request in order to "request" that the changes be taken "upstream".
+
+Additional references:
+* GitHub's guide on [forking](https://guides.github.com/activities/forking/)
+* GitHub's guide on [Contributing to Open Source](https://guides.github.com/activities/contributing-to-open-source/#pull-request)
+* GitHub's guide on [Understanding the GitHub Flow](https://guides.github.com/introduction/flow/)
+
+
+### Lifecycle of a pull request
+
+#### Before submitting
+
+* To avoid merge conflicts, make sure your branch is rebased on the `master` branch of this repository.
+* Clean up your commit history.
+  Each commit should be a **single complete** change.
+  This discipline is important when reviewing the changes as well as when using `git bisect` and `git revert`.
+
+
+#### Pull request submission
+
+**Always create a pull request to the `master` branch of this repository**.
+
+* Run tests and ensure they are passing before pull request.
+
+* Avoid making big pull requests.
+  Before you invest a large amount of time,
+  file an issue and start a discussion with the community.
+    
+
+
+
