@@ -33,15 +33,14 @@ New to Git?
       install and getting started.
 * [GitHub Flow Guide](https://guides.github.com/introduction/flow/):
   step-by-step instructions of GitHub flow.
-* Review the [Contribution License Agreement][CLA] requirement.
+* Review the [Contribution License Agreement](https://github.com/PowerShell/PowerShell/blob/master/.github/CONTRIBUTING.md#contributor-license-agreement-cla) requirement.
 
 
 
 Contributing to Issues
 ----------------------
 
-* Review [Issue Management][issue-management].
-* Check if the issue you are going to file already exists in our [GitHub issues][open-issue].
+* Check if the issue you are going to file already exists in our [issues](https://github.com/JeffBow/AzurePowerShell/issues).
 * If you can't find your issue already,
   [open a new issue](https://github.com/JeffBow/AzurePowerShell/issues/new),
   making sure to follow the directions as best you can.
@@ -50,8 +49,8 @@ Contributing to Issues
 
 ### Forks and Pull Requests
 
-GitHub fosters collaboration through the notion of [pull requests][using-prs].
-On GitHub, anyone can [fork][fork-a-repo] an existing repository
+GitHub fosters collaboration through the notion of pull requests.
+On GitHub, anyone can fork an existing repository
 into their own user account, where they can make private changes to their fork.
 To contribute these changes back into the original repository,
 a user simply creates a pull request in order to "request" that the changes be taken "upstream".
