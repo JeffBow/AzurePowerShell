@@ -5,17 +5,17 @@
 
 * **Copy-AzureRMresourceGroup.ps1** - Copies resources from one resource group to another in a different Azure Subscription AND Tenant
 
-* **Clone-AzureRMresourceGroup.ps1** - Copies resources from one resource group to a new resource group in the same Azure ubscription and Tenant
+* **Clone-AzureRMresourceGroup.ps1** - Clones resources from one resource group to a new resource group (in the same or different location) within the same Azure Subscription and Tenant
 
 * **Backup-AzureRMvm.ps1** - Backs up VHDs of each VM in a resource group to a defined container
 
 * **Restore-AzureRMvm.ps1** - Restores a VM from a backed up VHD created by the above script. Not recommended in production environments
 
-* **Start-AzureV2vm.ps1** -  Interactive PowerShell workflow that starts all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount 
+* **Start-AzureV2vm.ps1** -  PowerShell workflow that starts all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount 
 
-* **Stop-AzureV2vm.ps1**  - Interactive PowerShell workflow that stops all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount
+* **Stop-AzureV2vm.ps1**  - PowerShell workflow that stops all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount
 
-* **Stop-AzureV2vmRunbook.ps1**  - Azure Automation Runbook that stops all VMs in a resource group. Requires AzureRunAs Connection
+* **Stop-AzureV2vmRunbook.ps1**  - Azure Automation Runbook that stops all VMs in a resource group. Requires Automation Connection e.g. AzureRunAsConnection
 
 * **New-AzureServicePrincpal.ps1** - Creates Azure AD Service Principal, associated Application ID and certificate required to use -ServicePrincipal flag of Login-AzureRMAccount
  
