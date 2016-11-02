@@ -18,8 +18,17 @@
 .EXAMPLE
    .\Clone-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -NewResourceGroupName 'NEWCONTOSO'
 
+   Clones Resource Group CONTOSO as new resource group NEWCONTOSO into the same subscription, in the same location/region and environment
+
 .EXAMPLE
    .\Clone-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -NewResourceGroupName 'NEWCONTOSO' -NewLocation 'westus' -resume 
+
+   Clones Resource Group CONTOSO as new resource group NEWCONTOSO in new location West US
+
+.EXAMPLE
+   .\Clone-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -NewResourceGroupName 'NEWCONTOSO' -Environment 'AzureUSGovernment'
+
+   Clones Resource Group CONTOSO as resource group NEWCONTOSO in Azure Government
 
 
 
@@ -31,6 +40,9 @@
 
 .PARAMETER -NewLocation [string]
   Name of Azure location of new resource group
+
+.PARAMETER -Environment [string]
+  Name of the Environment. e.g. AzureUSGovernment. Defaults to AzureCloud
 
 .PARAMETER -resume [switch]
   Resumes after the file copy
@@ -66,6 +78,9 @@ param(
 
     [Parameter(Mandatory=$false)]
     [string]$NewLocation,
+
+    [Parameter(Mandatory=$false)]
+    [string]$Environment,
 
     [Parameter(Mandatory=$false)]
     [switch]$resume
@@ -206,9 +221,23 @@ function copy-azureBlob
 
 ################################>
 
+# Verify specified Environment
+if($Environment -and (Get-AzureRMEnvironment -Name $Environment) -eq $null)
+{
+   write-warning "The specified -Environment could not be found. Specify one of these valid environments."
+   $Environment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your subscription" -OutputMode Single).Name
+}
+
 # get Azure creds for source
 write-host "Enter credentials for your Azure Subscription..." -f Yellow
-$login= Login-AzureRmAccount 
+if($Environment)
+{
+   $login= Login-AzureRmAccount -EnvironmentName $Environment
+}
+else
+{
+   $login= Login-AzureRmAccount 
+} 
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -362,11 +391,13 @@ $sourceStorageObjects.srcURI
     {
         $location = $NewLocation
 
-          # Prompt for location if provided location doesn't exist in current environment.
-        if(! (Get-AzureRmResourceProvider | where { $_.ProviderNamespace -eq 'Microsoft.Compute' -and $_.locations -match $location})) 
+        Write-Output "Verifying specified location: $location ..."
+        # Prompt for location if provided location doesn't exist in current environment.
+        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).DisplayName
+        if(! $location) 
         {
-            write-warning "$location is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-            $location = (Get-AzureRmResourceProvider | where { $_.ProviderNamespace -eq 'Microsoft.Compute'}).Locations | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single
+            write-warning "$NewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
+            $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).DisplayName
         }
     }
 

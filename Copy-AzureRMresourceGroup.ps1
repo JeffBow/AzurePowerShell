@@ -22,12 +22,28 @@
    .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO'
 
 .EXAMPLE
-   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -Resume 
+   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -TargetEnvironment 'AzureUSGovernment' 
+
+   Copies Resource Group CONTOSO from Azure Cloud to Azure Government
+
+.EXAMPLE
+   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -SourceEnvironment 'AzureUSGovernment'  -TargetEnvironment 'AzureUSGovernment' 
+
+   Copies Resource Group CONTOSO from Azure Government to Azure Government
+
+.EXAMPLE
+   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -Resume
 
 
 
 .PARAMETER -ResourceGroupName [string]
   Name of resource group being copied
+
+.PARAMETER -SourceEnvironment [string]
+  Name of the source Environment. e.g. AzureUSGovernment. Defaults to AzureCloud
+
+.PARAMETER -TargetEnvironment [string]
+  Name of the target Environment. e.g. AzureUSGovernment. Defaults to AzureCloud
 
 .PARAMETER -Resume [switch]
   Resumes after the file copy
@@ -59,8 +75,13 @@ param(
     [string]$ResourceGroupName,
 
     [Parameter(Mandatory=$false)]
-    [switch]$Resume
+    [string]$SourceEnvironment,
 
+    [Parameter(Mandatory=$false)]
+    [string]$TargetEnvironment,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Resume
 
 )
 
@@ -197,9 +218,23 @@ if(! $resume){
 
 ################################>
 
+# Verify specified Environment
+if($SourceEnvironment -and (Get-AzureRMEnvironment -Name $SourceEnvironment) -eq $null)
+{
+   write-warning "The specified -SourceEnvironment could not be found. Specify one of these valid environments."
+   $SourceEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your source subscription" -OutputMode Single).Name
+}
+
 # get Azure creds for source
 write-host "Enter credentials for the 'source' Azure Subscription..." -f Yellow
-$login= Login-AzureRmAccount 
+if($SourceEnvironment)
+{
+   $login= Login-AzureRmAccount -EnvironmentName $SourceEnvironment
+}
+else
+{
+   $login= Login-AzureRmAccount 
+}
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -352,8 +387,24 @@ $sub = $null
 $SourceSubscriptionID = $subscriptionID
 $subscriptionID = $null
 
-write-host "Enter credentials for the 'target' Azure Subscription..." -F Yellow
-$login= Login-AzureRmAccount 
+# Verify specified Environment
+if($TargetEnvironment -and (Get-AzureRMEnvironment -Name $TargetEnvironment) -eq $null)
+{
+   write-warning "The specified -TargetEnvironment could not be found. Specify one of these valid environments."
+   $TargetEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
+}
+
+
+# get Azure creds for source
+write-host "Enter credentials for the 'target' Azure Subscription..." -f Yellow
+if($TargetEnvironment)
+{
+   $login= Login-AzureRmAccount -EnvironmentName $targetEnvironment
+}
+else
+{
+   $login= Login-AzureRmAccount 
+}
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -408,6 +459,16 @@ if(! $resume)
         }  
     }
     while($RGexists)
+
+    $SavedLocation = $Location
+    Write-Output "Verifying specified location: $location ..."
+    # Prompt for location if provided location doesn't exist in current environment.
+    $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).DisplayName
+    if(! $location) 
+    {
+        write-warning "$SavedLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
+        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).DisplayName
+    }
 
     try
     {
