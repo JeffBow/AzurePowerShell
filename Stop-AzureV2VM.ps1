@@ -30,6 +30,8 @@
 .PARAMETER -TenantId [string]
   Tenant ID of the registered Azure Active Directory Service Principal
 
+.PARAMETER -Environment [string]
+  Name of Environment e.g. AzureUSGovernment.  Defaults to AzureCloud
 
 .NOTES
 
@@ -62,7 +64,10 @@ param(
     [string]$ApplicationId,
     
     [Parameter(Mandatory=$true)]
-    [string]$TenantId
+    [string]$TenantId,
+
+    [Parameter(Mandatory=$false)]
+    [string]$Environment= "AzureCloud"
      
 )
 
@@ -121,6 +126,7 @@ $loginParams = @{
 "ApplicationId" = $ApplicationId
 "TenantId" = $TenantId
 "ServicePrincipal" = $null
+"EnvironmentName" = $Environment
 }
 
 

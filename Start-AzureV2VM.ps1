@@ -30,6 +30,9 @@
 .PARAMETER -TenantId [string]
   Tenant ID of the registered Azure Active Directory Service Principal
 
+.PARAMETER -Environment [string]
+  Name of Environment e.g. AzureUSGovernment.  Defaults to AzureCloud
+
 .PARAMETER -FirstServer [string]
   Identifies the the first server to start. i.e. a domain controller
 
@@ -68,6 +71,9 @@ param(
     [string]$TenantId,
 
     [Parameter(Mandatory=$false)]
+    [string]$Environment= "AzureCloud",
+
+    [Parameter(Mandatory=$false)]
     [string]$FirstServer
 
 )
@@ -77,6 +83,7 @@ $loginParams = @{
 "ApplicationId" = $ApplicationId
 "TenantId" = $TenantId
 "ServicePrincipal" = $null
+"EnvironmentName" = $Environment
 }
 
 

@@ -17,6 +17,8 @@
 .PARAMETER -CertYearsValid[int32]
   The number of years the certificate will be valid.  Defaults to 3
 
+.PARAMETER -Environment [string]
+  Name of Environment e.g. AzureUSGovernment.  Defaults to AzureCloud
 
 .NOTES
 
@@ -37,8 +39,12 @@
 param(
 
     [Parameter(Mandatory=$false)]
-    [int32]$CertYearsValid= 3
+    [int32]$CertYearsValid= 3,
+ 
+    [Parameter(Mandatory=$false)]
+    [string]$Environment= "AzureCloud"
 )
+
 
 
 
@@ -69,7 +75,7 @@ function Roll-Back
 
 # get Azure Creds
 write-host "Enter credentials for the 'target' Azure Subscription..." -F Yellow
-$login= Login-AzureRmAccount 
+$login= Login-AzureRmAccount -EnvironmentName $Environment
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -154,7 +160,14 @@ While ($NewRole -eq $null -and $Retries -le 6)
 {
     # Sleep here for a few seconds to allow the service principal application to become active (should only take a couple of seconds normally)
     Sleep 5
-    New-AzureRMRoleAssignment -RoleDefinitionName Contributor -ServicePrincipalName $ApplicationId | Write-Verbose -ErrorAction SilentlyContinue
+    try
+    {
+        New-AzureRMRoleAssignment -RoleDefinitionName Contributor -ServicePrincipalName $ApplicationId -ea Stop | Write-Verbose 
+    }
+    catch
+    {
+        write-warning "Waiting 10 seconds for Service Principal to become active before adding Role Assignment'. Retry $Retriest of 5"
+    }
     Sleep 10
     $NewRole = Get-AzureRMRoleAssignment -ServicePrincipalName $ApplicationId -ErrorAction SilentlyContinue
     $Retries++;
@@ -170,9 +183,10 @@ else
 {
     [string]$outstring = @"
 `$loginParams = @{
-"CertificateThumbprint" = '$CertificateThumbprint'
+"CertificateThumbprint" = '$thumbprint'
 "ApplicationId" = '$ApplicationId'
 "TenantId" = '$TenantId'
+"EnvironmentName" = '$Environment'
 "ServicePrincipal" = `$null
 }
 
@@ -202,7 +216,7 @@ Get-AzureRmResourceGroup
 
 "@
   
-    $outstring | out-file 'loginAzure.ps1'
+    $outstring | out-file 'Login-AzureRM.ps1'
 }
 
 

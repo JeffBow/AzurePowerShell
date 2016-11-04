@@ -28,6 +28,9 @@
 .PARAMETER -VhdContainer [string]
   Name of container that will hold VHD blobs attached to VMs
 
+.PARAMETER -Environment [string]
+  Name of Environment e.g. AzureUSGovernment.  Defaults to AzureCloud
+
 
 .NOTES
 
@@ -58,7 +61,10 @@ param(
     [string]$BackupContainer= 'vhd-backups',
 
     [Parameter(Mandatory=$false)]
-    [string]$VhdContainer= 'vhds'
+    [string]$VhdContainer= 'vhds',
+
+    [Parameter(Mandatory=$false)]
+    [string]$Environment= "AzureCloud"
 
 )
 $ProgressPreference = 'SilentlyContinue'
@@ -161,7 +167,7 @@ function copy-azureBlob
 
 # get Azure creds 
 write-host "Enter credentials for your Azure Subscription..." -F Yellow
-$login= Login-AzureRmAccount 
+$login= Login-AzureRmAccount -EnvironmentName $Environment
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
