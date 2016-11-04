@@ -1113,6 +1113,17 @@ foreach($srcVM in $resourceGroupVMs)
     $avSetName = $avSetRef[($avSetRef.count -1)]
     $AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $avSetName
     $CreateOption = "Attach"
+
+    Write-Output "Verifying specified VM Size of $vmSize for location $location ..."
+    # Prompt for to select new if doesn't exist in current environment.
+    $savedVMSize = $vmSize 
+    if($vmSize  -and (Get-AzureRmVMSize -Location $Location).name -notcontains $vmSize) 
+    {
+      write-warning "$savedVMSize is an invalid Azure Virtual Machine Size for this location in this environment.  Please select a valid VM Size and click OK"
+      $vmSize = (Get-AzureRmVMSize -Location $Location | Select Name, NumberOfCores, MemoryInMB, MaxDataDiskCount | Out-GridView -Title "Select Azure VM Size" -OutputMode Single).Name
+    }
+   
+   
       
     # get blob and container names from source URI
     $OSsrcURI = $srcVM.storageprofile.osdisk.vhd.uri
