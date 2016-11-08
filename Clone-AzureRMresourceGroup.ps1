@@ -146,6 +146,19 @@ function Get-StorageObject
 
 
 <###############################
+  get available resources function
+################################>
+function get-availableResources
+{ param($resourceType, $location)
+
+    $resource = Get-AzureRmVMUsage -Location $location | where{$_.Name.value -eq $resourceType}
+    [int32]$availabe = $resource.limit - $resource.currentvalue
+    return $availabe 
+
+}
+
+
+<###############################
   Copy blob function
 ################################>
 function copy-azureBlob 
@@ -281,6 +294,7 @@ $RGexport = Export-AzureRmResourceGroup -ResourceGroupName $resourceGroupName -P
 $resourceGroupStorageAccounts = Get-AzureRmStorageAccount -ResourceGroupName $resourceGroupName
 $resourceGroupVirtualNetworks = Get-AzureRmVirtualNetwork -ResourceGroupName $resourceGroupName
 $resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
+$resourceGroupNSGs = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $resourceGroupName
 $resourceGroupAvSets = Get-AzureRmAvailabilitySet -ResourceGroupName $resourceGroupName 
 $resourceGroupVMs = Get-AzureRMVM -ResourceGroupName $resourceGroupName
 $resourceGroupPIPs = Get-AzureRmPublicIpAddress -ResourceGroupName $resourceGroupName
@@ -310,6 +324,8 @@ $resourceGroupVMs | %{
 
 write-host "Virtual networks:" -f DarkGreen
 $resourceGroupVirtualNetworks.name
+write-host "Network Security Groups:" -f DarkGreen
+$resourceGroupNSGs.name
 write-host "Load Balancers:" -f DarkGreen
 $resourceGroupLBs.name
 write-host "Public IPs:" -f DarkGreen
@@ -387,6 +403,10 @@ $sourceStorageObjects.srcURI
 
     $ResourceGroupName = $NewResourceGroupName
 
+    <###############################
+     Verify Location
+    ################################>
+
     if($NewLocation)
     {
         $location = $NewLocation
@@ -401,6 +421,34 @@ $sourceStorageObjects.srcURI
         }
     }
 
+    <###############################
+     Verify Available Resources 
+    ################################>
+
+    foreach ($vmSize in ($resourceGroupVMs.hardwareprofile.vmsize))
+    {
+     $cores = $null
+     $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
+ 
+     $totalCoresNeeded = $cores + $totalCoresNeeded
+    }
+
+
+    $TotalAvailabeVMs = Get-availableResources -ResourceType 'virtualMachines' -Location $location
+    if($resourceGroupVMs.count -gt $TotalAvailabeVMs){Write-Warning "Insufficent available VMs in location $location. Script halted."; break}
+
+    $TotalAvailabeCores = Get-availableResources -ResourceType 'cores' -Location $location
+    if($totalCoresNeeded -gt $TotalAvailabeCores){Write-Warning "Insufficent available cores in location $location. Script halted."; break}
+    
+
+    $TotalAvailabeAVs = Get-availableResources -ResourceType 'availabilitySets' -Location $location
+    if($resourceGroupAvSets.count -gt $TotalAvailabeAVs){Write-Warning "Insufficent Availability Sets in location $location. Script halted."; break}
+   
+
+
+    <###############################
+     Validate and create new resource group  
+    ################################>
     do 
     {
         $RGexists = $null
@@ -445,6 +493,20 @@ $sourceStorageObjects.srcURI
     [array]$VHDstorageObjects = @()
 
     # get all the unique source storage accounts from custom psobject
+    $srcStorageAccounts = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
+
+    $VHDsrcStorageAccounts = $sourceVHDstorageObjects| Select-Object -Property srcStorageAccount -Unique
+    
+    # add the VHD storage accounts to $sourceStorageObjects if they're not there already
+    foreach($VHDsrcStorageAccountObj in $VHDsrcStorageAccounts)
+    {
+        $VHDsrcStorageAccountName = $VHDsrcStorageAccountObj.srcStorageAccount
+        if($srcStorageAccounts.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
+        {
+            [array]$sourceStorageObjects += $sourceVHDstorageObjects|where{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
+        }
+    }
+
     $srcStorageAccounts = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
 
     # process each source storage account - creating new destination storage account from old account name
@@ -558,6 +620,48 @@ $sourceStorageObjects.srcURI
 
 ################################>
 
+     # create new Network Security Groups
+    foreach($srcNSG in $resourceGroupNSGs)
+    {
+        $nsgName = $srcNSG.name
+        [array]$nsgRules = @()
+       
+        foreach($nsgRule in $srcNSG.SecurityRules)
+        {
+           
+            $nsgRuleParams = @{
+                "Name" = $nsgRule.Name  
+                "Access" = $nsgRule.Access
+                "Protocol" = $nsgRule.Protocol 
+                "Direction" = $nsgRule.Direction 
+                "Priority" = $nsgRule.Priority 
+                "SourceAddressPrefix" = $nsgRule.SourceAddressPrefix 
+                "SourcePortRange" =  $nsgRule.SourcePortRange 
+                "DestinationAddressPrefix" = $nsgRule.DestinationAddressPrefix 
+                "DestinationPortRange" = $nsgRule.DestinationPortRange
+            }
+
+            if($nsgRule.Description)
+            {
+                $nsgRuleParams.Add("Description", $nsgRule.Description)
+            }
+
+           $nsgRules += New-AzureRmNetworkSecurityRuleConfig @nsgRuleParams
+        }
+    
+
+        try
+        {
+            write-verbose "Creating Network Security Group $nsgName in resource group $resourceGroupName at location $location" -verbose
+           $NSG = New-AzureRmNetworkSecurityGroup -Name $nsgName -SecurityRules $nsgRules  -ResourceGroupName $ResourceGroupName -Location $location  -ea Stop -wa SilentlyContinue
+            Write-Output "Network Security Group $nsgName was created"
+        }
+        catch
+        {
+            $_
+            write-warning "Failed to create Network Security Group $nsgName"
+        }
+    }
 
     # create new Virtual Network(s)
     foreach($srcNetwork in $resourceGroupVirtualNetworks)
@@ -577,6 +681,27 @@ $sourceStorageObjects.srcURI
         {
             $_
             write-warning "Failed to create virtual network $destVNname"
+        }
+
+        foreach($destSub in $destSubnets) 
+         {         
+            if($destSub.Subnets.NetworkSecurityGroup)
+            {   
+                try
+                {
+                    $NSGsplit = $destSub.Subnets.NetworkSecurityGroup.id.split('/')
+                    $srcNSGname = $NSGsplit[$NSGsplit.Length -1]
+                    $NSG = Get-AzureRmNetworkSecurityGroup -Name $srcNSGname -ResourceGroupName $ResourceGroupName -ea Stop
+                    $subnet = $newVirtualNetwork | Get-AzureRmVirtualNetworkSubnetConfig  -Name $destSub.Name -ea Stop -wa SilentlyContinue
+                    Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $newVirtualNetwork -Name $destSub.Name -AddressPrefix $subnet.AddressPrefix -NetworkSecurityGroup $NSG | Set-AzureRmVirtualNetwork -ea Stop | out-null
+                }
+                catch
+                {
+                    $_
+                    write-warning "Failed to add Network Security Group $srcNSGname to $($destSub.Name)"
+                }
+             }
+          
         }
     }
 
@@ -623,8 +748,7 @@ $sourceStorageObjects.srcURI
     }
 
 
-
-
+   
     # create new Load Balancer
     foreach($srcLB in $resourceGroupLBs)
     {
@@ -866,7 +990,10 @@ $sourceStorageObjects.srcURI
             # add public IP if present.
             if($ipConfig.PublicIpAddress) 
             {
-                $ipConfigParams.Add("PublicIpAddress", $ipConfig.PublicIpAddress)
+                $ipipsplit = $ipConfig.PublicIpAddress.id.split('/')
+                $ipipName = $ipipsplit[$ipipsplit.Length -1]
+                $PublicIP = Get-AzureRmPublicIpAddress -Name $ipipName -ResourceGroupName $ResourceGroupName
+                $ipConfigParams.Add("PublicIpAddress", $PublicIP)
             }
 
             # add LoadBalancerBackendAddressPools if present.
@@ -944,10 +1071,20 @@ $sourceStorageObjects.srcURI
         }
 
         # add NetworkSecurityGroup if present.
-        # TODO: need to verify this can be added as is
         if($srcNIC.NetworkSecurityGroup) 
         {
-            $NICparams.Add("NetworkSecurityGroup", $srcNIC.NetworkSecurityGroup)
+            $NSGsplit = $srcNIC.NetworkSecurityGroup.id.split('/')
+            $srcNSGname = $NSGsplit[$NSGsplit.Length -1]
+            
+            try
+            { 
+                $newNSG = Get-AzureRmNetworkSecurityGroup -Name $srcNSGname -ResourceGroupName $ResourceGroupName
+                $NICparams.Add("NetworkSecurityGroup", $newNSG)
+            }
+            catch
+            {
+                write-warning "Failed to add Network Security Group $srcNSGname to network interface $NicName"
+            }
         }
 
         # add EnableIPForwarding if present.

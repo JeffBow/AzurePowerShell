@@ -140,7 +140,17 @@ function Get-StorageObject
 
 } # end of Get-StorageObject function
 
+<###############################
+  get available resources function
+################################>
+function get-availableResources
+{ param($resourceType, $location)
 
+    $resource = Get-AzureRmVMUsage -Location $location | where{$_.Name.value -eq $resourceType}
+    [int32]$availabe = $resource.limit - $resource.currentvalue
+    return $availabe 
+
+}
 
 <###############################
   Copy blob function
@@ -276,12 +286,13 @@ $RGexport = Export-AzureRmResourceGroup -ResourceGroupName $resourceGroupName -P
 $resourceGroupStorageAccounts = Get-AzureRmStorageAccount -ResourceGroupName $resourceGroupName
 $resourceGroupVirtualNetworks = Get-AzureRmVirtualNetwork -ResourceGroupName $resourceGroupName
 $resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
+$resourceGroupNSGs = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $resourceGroupName
 $resourceGroupAvSets = Get-AzureRmAvailabilitySet -ResourceGroupName $resourceGroupName 
 $resourceGroupVMs = Get-AzureRMVM -ResourceGroupName $resourceGroupName
 $resourceGroupPIPs = Get-AzureRmPublicIpAddress -ResourceGroupName $resourceGroupName
 $resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
 $resourceGroupLBs = Get-AzureRmLoadBalancer -ResourceGroupName $resourceGroupName
-if(! $resourceGroupVMs){write-warning "No virtual machines found in resource group $resourceGroupName"; break}
+if(! $resourceGroupVMs){write-warning "No virtual machines found in resource group $resourceGroupName"}
 
 
 
@@ -305,6 +316,8 @@ $resourceGroupVMs | %{
 
 write-host "Virtual networks:" -f DarkGreen
 $resourceGroupVirtualNetworks.name
+write-host "Network Security Groups:" -f DarkGreen
+$resourceGroupNSGs.name
 write-host "Load Balancers:" -f DarkGreen
 $resourceGroupLBs.name
 write-host "Public IPs:" -f DarkGreen
@@ -390,7 +403,7 @@ $subscriptionID = $null
 # Verify specified Environment
 if($TargetEnvironment -and (Get-AzureRMEnvironment -Name $TargetEnvironment) -eq $null)
 {
-   write-warning "The specified -TargetEnvironment could not be found. Specify one of these valid environments."
+   write-warning "The specified -TargetEnvironment could not be found. Select one of these valid environments."
    $TargetEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
 }
 
@@ -436,6 +449,46 @@ write-host "Logged into $($sub.SubscriptionName) with subscriptionID $Subscripti
 
 if(! $resume)
 {
+    
+    <###############################
+     Verify Location
+    ################################>
+
+    $SavedLocation = $Location
+    Write-Output "Verifying specified location: $location ..."
+    # Prompt for location if provided location doesn't exist in current environment.
+    $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).DisplayName
+    if(! $location) 
+    {
+        write-warning "$SavedLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
+        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).DisplayName
+    }
+
+
+    <###############################
+     Verify Available Resources 
+    ################################>
+
+    foreach ($vmSize in ($resourceGroupVMs.hardwareprofile.vmsize))
+    {
+     $cores = $null
+     $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
+ 
+     $totalCoresNeeded = $cores + $totalCoresNeeded
+    }
+
+    
+    $TotalAvailabeVMs = Get-availableResources -ResourceType 'virtualMachines' -Location $location
+    if($resourceGroupVMs.count -gt $TotalAvailabeVMs){Write-Warning "Insufficent available VMs in location $location. Script halted."; break}
+
+    $TotalAvailabeCores = Get-availableResources -ResourceType 'cores' -Location $location
+    if($totalCoresNeeded -gt $TotalAvailabeCores){Write-Warning "Insufficent available cores in location $location. Script halted."; break}
+    
+
+    $TotalAvailabeAVs = Get-availableResources -ResourceType 'availabilitySets' -Location $location
+    if($resourceGroupAvSets.count -gt $TotalAvailabeAVs){Write-Warning "Insufficent Availability Sets in location $location. Script halted."; break}
+    
+
 
     <###############################
 
@@ -460,15 +513,6 @@ if(! $resume)
     }
     while($RGexists)
 
-    $SavedLocation = $Location
-    Write-Output "Verifying specified location: $location ..."
-    # Prompt for location if provided location doesn't exist in current environment.
-    $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).DisplayName
-    if(! $location) 
-    {
-        write-warning "$SavedLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).DisplayName
-    }
 
     try
     {
@@ -499,10 +543,24 @@ if(! $resume)
     # get all the unique source storage accounts from custom psobject
     $srcStorageAccounts = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
 
+    $VHDsrcStorageAccounts = $sourceVHDstorageObjects| Select-Object -Property srcStorageAccount -Unique
+    
+    # add the VHD storage accounts to $sourceStorageObjects if they're not there already
+    foreach($VHDsrcStorageAccountObj in $VHDsrcStorageAccounts)
+    {
+        $VHDsrcStorageAccountName = $VHDsrcStorageAccountObj.srcStorageAccount
+        if($srcStorageAccounts.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
+        {
+            [array]$sourceStorageObjects += $sourceVHDstorageObjects|where{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
+        }
+    }
+
+    $srcStorageAccounts = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
+
     # process each source storage account - creating new destination storage account from old account name
     foreach($srcStorageAccountObj in $srcStorageAccounts)
     {
-        $srcStorageAccount = $srcStorageAccountObj.srcStorageAccount
+        $srcStorageAccount = $srcStorageAccountObj.srcStorageAccount 
         # create unique storage account name from old account name and guid
         if($srcStorageAccount.Length -gt 16){$first16 = $srcStorageAccount.Substring(0,16)}else{$first16 = $srcStorageAccount}
         [string] $guid = (New-Guid).Guid
@@ -609,7 +667,52 @@ if(! $resume)
  Vnets, NICs, Loadbalancers, PIPs
 
 ################################>
+    
+    
+    # create new Network Security Groups
+    foreach($srcNSG in $resourceGroupNSGs)
+    {
+        $nsgName = $srcNSG.name
+        [array]$nsgRules = @()
+       
+        foreach($nsgRule in $srcNSG.SecurityRules)
+        {
+           
+            $nsgRuleParams = @{
+                "Name" = $nsgRule.Name  
+                "Access" = $nsgRule.Access
+                "Protocol" = $nsgRule.Protocol 
+                "Direction" = $nsgRule.Direction 
+                "Priority" = $nsgRule.Priority 
+                "SourceAddressPrefix" = $nsgRule.SourceAddressPrefix 
+                "SourcePortRange" =  $nsgRule.SourcePortRange 
+                "DestinationAddressPrefix" = $nsgRule.DestinationAddressPrefix 
+                "DestinationPortRange" = $nsgRule.DestinationPortRange
+            }
 
+            if($nsgRule.Description)
+            {
+                $nsgRuleParams.Add("Description", $nsgRule.Description)
+            }
+
+           $nsgRules += New-AzureRmNetworkSecurityRuleConfig @nsgRuleParams
+        }
+    
+
+        try
+        {
+            write-verbose "Creating Network Security Group $nsgName in resource group $resourceGroupName at location $location" -verbose
+           $NSG = New-AzureRmNetworkSecurityGroup -Name $nsgName -SecurityRules $nsgRules  -ResourceGroupName $ResourceGroupName -Location $location  -ea Stop -wa SilentlyContinue
+            Write-Output "Network Security Group $nsgName was created"
+        }
+        catch
+        {
+            $_
+            write-warning "Failed to create Network Security Group $nsgName"
+        }
+
+
+    }
 
     # create new Virtual Network(s)
     foreach($srcNetwork in $resourceGroupVirtualNetworks)
@@ -630,9 +733,32 @@ if(! $resume)
             $_
             write-warning "Failed to create virtual network $destVNname"
         }
+
+                       
+         foreach($destSub in $destSubnets) 
+         {         
+            if($destSub.Subnets.NetworkSecurityGroup)
+            {   
+                try
+                {
+                    $NSGsplit = $destSub.Subnets.NetworkSecurityGroup.id.split('/')
+                    $srcNSGname = $NSGsplit[$NSGsplit.Length -1]
+                    $NSG = Get-AzureRmNetworkSecurityGroup -Name $srcNSGname -ResourceGroupName $ResourceGroupName -ea Stop
+                    $subnet = $newVirtualNetwork | Get-AzureRmVirtualNetworkSubnetConfig  -Name $destSub.Name -ea Stop -wa SilentlyContinue
+                    Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $newVirtualNetwork -Name $destSub.Name -AddressPrefix $subnet.AddressPrefix -NetworkSecurityGroup $NSG | Set-AzureRmVirtualNetwork -ea Stop | out-null
+                }
+                catch
+                {
+                    $_
+                    write-warning "Failed to add Network Security Group $srcNSGname to $($destSub.Name)"
+                }
+             }
+          
+        }
+
     }
 
-
+    
     # create new Availability sets
     foreach($srcAVset in $resourceGroupAvSets)
     {
@@ -899,6 +1025,7 @@ if(! $resume)
                 {
                     $vnet = Get-AzureRmVirtualNetwork -name $vnetName -ResourceGroupName $resourceGroupName -ea Stop -wa SilentlyContinue
                     $subnet = $vnet | Get-AzureRmVirtualNetworkSubnetConfig  -Name $subnetName -ea Stop -wa SilentlyContinue
+               
                 }
                 catch{}
             }
@@ -918,7 +1045,10 @@ if(! $resume)
             # add public IP if present.
             if($ipConfig.PublicIpAddress) 
             {
-                $ipConfigParams.Add("PublicIpAddress", $ipConfig.PublicIpAddress)
+                $ipipsplit = $ipConfig.PublicIpAddress.id.split('/')
+                $ipipName = $ipipsplit[$ipipsplit.Length -1]
+                $PublicIP = Get-AzureRmPublicIpAddress -Name $ipipName -ResourceGroupName $ResourceGroupName
+                $ipConfigParams.Add("PublicIpAddress", $PublicIP)
             }
 
             # add LoadBalancerBackendAddressPools if present.
@@ -995,11 +1125,22 @@ if(! $resume)
             $NICparams.Add("DnsServer", $NicDNS)
         }
 
+
         # add NetworkSecurityGroup if present.
-        # TODO: need to verify this can be added as is
         if($srcNIC.NetworkSecurityGroup) 
         {
-            $NICparams.Add("NetworkSecurityGroup", $srcNIC.NetworkSecurityGroup)
+            $NSGsplit = $srcNIC.NetworkSecurityGroup.id.split('/')
+            $srcNSGname = $NSGsplit[$NSGsplit.Length -1]
+            
+            try
+            { 
+                $newNSG = Get-AzureRmNetworkSecurityGroup -Name $srcNSGname -ResourceGroupName $ResourceGroupName
+                $NICparams.Add("NetworkSecurityGroup", $newNSG)
+            }
+            catch
+            {
+                write-warning "Failed to add Network Security Group $srcNSGname to network interface $NicName"
+            }
         }
 
         # add EnableIPForwarding if present.
@@ -1091,6 +1232,7 @@ else # if not resume
         write-warning "Failed to load resume file $VHDstorageObjectsResumePath  Cannot resume. Exiting script."
     }
 }
+
 
 
 <###############################
