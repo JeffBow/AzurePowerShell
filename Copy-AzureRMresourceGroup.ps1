@@ -1255,10 +1255,14 @@ foreach($srcVM in $resourceGroupVMs)
     $OSDiskName = $srcVM.StorageProfile.OsDisk.Name
     $OSType = $srcVM.storageprofile.osdisk.OsType
     $OSDiskCaching = $srcVM.StorageProfile.OsDisk.Caching
-    $avSetRef = ($srcVM.AvailabilitySetReference.id).Split('/')
-    $avSetName = $avSetRef[($avSetRef.count -1)]
-    $AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $avSetName
     $CreateOption = "Attach"
+    
+    if($srcVM.AvailabilitySetReference)
+    {
+        $avSetRef = ($srcVM.AvailabilitySetReference.id).Split('/')
+        $avSetName = $avSetRef[($avSetRef.count -1)]
+        $AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $avSetName
+    }
 
     Write-Output "Verifying specified VM Size of $vmSize for location $location ..."
     # Prompt for to select new if doesn't exist in current environment.
