@@ -541,7 +541,8 @@ if(! $resume)
     [array]$VHDstorageObjects = @()
 
     # get all the unique source storage accounts from custom psobject
-    $srcStorageAccounts = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
+    $srcStorageAccountNames = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
+    
 
     $VHDsrcStorageAccounts = $sourceVHDstorageObjects| Select-Object -Property srcStorageAccount -Unique
     
@@ -549,7 +550,7 @@ if(! $resume)
     foreach($VHDsrcStorageAccountObj in $VHDsrcStorageAccounts)
     {
         $VHDsrcStorageAccountName = $VHDsrcStorageAccountObj.srcStorageAccount
-        if($srcStorageAccounts.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
+        if($srcStorageAccountNames.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
         {
             [array]$sourceStorageObjects += $sourceVHDstorageObjects|where{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
         }
@@ -652,9 +653,12 @@ if(! $resume)
     
         
         # start copy for remaining blobs           
-        foreach($obj in $sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+        if($srcStorageAccountNames)
         {
-           copy-azureBlob -srcUri $obj.srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext 
+            foreach($obj in $sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+            {
+            copy-azureBlob -srcUri $obj.srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext 
+            }
         }
 
 
