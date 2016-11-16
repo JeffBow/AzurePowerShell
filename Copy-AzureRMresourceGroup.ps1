@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
     Copies Azure V2 (ARM) resources from one Azure Subscription to another.  
-    Unlike the Move-AzureRMresource cmdlet, this script allows you to move between subscriptions in different Tenants
+    Unlike the Move-AzureRMresource cmdlet, this script allows you to move between subscriptions in different Tenants and 
+    different Azure Environments.
     
 .DESCRIPTION
    Copies configurations of a resource group in one subscription and provisions them in the target subscription.
@@ -12,7 +13,7 @@
    It will break with the copy status that can be refreshed - or you can exit at that point and use the -resume switch to 
    continue with the VM provisioning after the file copies are complete.
 
-  Due to uniqueness requirements DNS names of source and targets, the following renaming occurs during reprovisioning
+  Due to uniqueness requirements DNS names of source and targets, the following renaming occurs during reprovisioning within the same environment
   ** Storage accounts will be renamed by appending an 8 character GUID to the original storage account name
   ** DNS Labels on Public IPs will be renamed by appending 'new' to the DNS name
 
@@ -21,29 +22,36 @@
 .EXAMPLE
    .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO'
 
-.EXAMPLE
-   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -TargetEnvironment 'AzureUSGovernment' 
-
-   Copies Resource Group CONTOSO from Azure Cloud to Azure Government
-
-.EXAMPLE
-   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -SourceEnvironment 'AzureUSGovernment'  -TargetEnvironment 'AzureUSGovernment' 
-
-   Copies Resource Group CONTOSO from Azure Government to Azure Government
+Using the script without explicitly specifying OptionalSourceEnvironment or OptionalTargetEnvrionment will result in prompts for these.  
+Press <Enter> to accept the default environment of AzureCloud.
 
 .EXAMPLE
    .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -Resume
+
+Resumes the script after waitig for the blob copy to complete.  Press <Enter> to accept the default source and target environments of AzureCloud.
+
+
+.EXAMPLE
+   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -OptionalTargetEnvironment 'AzureGermanCloud' 
+
+Copies Resource Group CONTOSO from Azure Cloud to Azure German Cloud.  Press <Enter> at prompt for OptionalSourceEnvironment
+
+
+.EXAMPLE
+   .\Copy-AzureRMresourceGroup.ps1 -ResourceGroupName 'CONTOSO' -OptionalSourceEnvironment 'AzureUSGovernment'  -OptionalTargetEnvironment 'AzureUSGovernment' 
+
+Copies Resource Group CONTOSO from Azure Government to Azure Government
 
 
 
 .PARAMETER -ResourceGroupName [string]
   Name of resource group being copied
 
-.PARAMETER -SourceEnvironment [string]
-  Name of the source Environment. e.g. AzureUSGovernment. Defaults to AzureCloud
+.PARAMETER -OptionalSourceEnvironment [string]
+  Name of the source Environment. e.g. AzureUSGovernment, AzureGermanCloud or AzureChinaCloud. Defaults to AzureCloud.
 
-.PARAMETER -TargetEnvironment [string]
-  Name of the target Environment. e.g. AzureUSGovernment. Defaults to AzureCloud
+.PARAMETER -OptionalTargetEnvironment [string]
+  Name of the target Environment. e.g. AzureUSGovernment, AzureGermanCloud or AzureChinaCloud. Defaults to AzureCloud.
 
 .PARAMETER -Resume [switch]
   Resumes after the file copy
@@ -71,19 +79,27 @@
 
 param(
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(mandatory=$True,
+      HelpMessage="Enter the name of the Azure Resource Group you want to copy and Press <Enter> e.g. CONTOSO")]
     [string]$ResourceGroupName,
 
-    [Parameter(Mandatory=$false)]
-    [string]$SourceEnvironment,
+    [Parameter(mandatory=$True,
+      HelpMessage="Press <Enter> to default to AzureCloud or enter the Azure Environment name of the source subscription. e.g. AzureUSGovernment")]
+    [AllowEmptyString()]
+    [string]$OptionalSourceEnvironment,
+    
+    [Parameter(mandatory=$True,
+      HelpMessage="Press <Enter> to default to AzureCloud or enter the Azure Environment name of the target subscription. e.g. AzureGermanCloud")]
+    [AllowEmptyString()]
+    [string]$OptionalTargetEnvironment,
 
-    [Parameter(Mandatory=$false)]
-    [string]$TargetEnvironment,
-
-    [Parameter(Mandatory=$false)]
+    [Parameter(mandatory=$False,
+      HelpMessage="Use this switch to resume the script after waiting for the blob copy to complete")]
     [switch]$Resume
 
-)
+
+
+)  
 
 $resourceGroupVmResumePath = "$env:TEMP\$resourcegroupname.resourceGroupVMs.resume.json"
 $VHDstorageObjectsResumePath = "$env:TEMP\$resourcegroupname.VHDstorageObjects.resume.json"
@@ -229,22 +245,23 @@ if(! $resume){
 ################################>
 
 # Verify specified Environment
-if($SourceEnvironment -and (Get-AzureRMEnvironment -Name $SourceEnvironment) -eq $null)
+if($OptionalSourceEnvironment -and (Get-AzureRMEnvironment -Name $OptionalSourceEnvironment) -eq $null)
 {
-   write-warning "The specified -SourceEnvironment could not be found. Specify one of these valid environments."
-   $SourceEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your source subscription" -OutputMode Single).Name
+   write-warning "The specified -OptionalSourceEnvironment could not be found. Specify one of these valid environments."
+   $OptionalSourceEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your source subscription" -OutputMode Single).Name
 }
 
 # get Azure creds for source
 write-host "Enter credentials for the 'source' Azure Subscription..." -f Yellow
-if($SourceEnvironment)
+if($OptionalSourceEnvironment)
 {
-   $login= Login-AzureRmAccount -EnvironmentName $SourceEnvironment
+   $login= Login-AzureRmAccount -EnvironmentName $OptionalSourceEnvironment
 }
 else
 {
-   $login= Login-AzureRmAccount 
+   $login= Login-AzureRmAccount
 }
+
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -401,23 +418,23 @@ $SourceSubscriptionID = $subscriptionID
 $subscriptionID = $null
 
 # Verify specified Environment
-if($TargetEnvironment -and (Get-AzureRMEnvironment -Name $TargetEnvironment) -eq $null)
+if($OptionalTargetEnvironment -and (Get-AzureRMEnvironment -Name $OptionalTargetEnvironment) -eq $null)
 {
-   write-warning "The specified -TargetEnvironment could not be found. Select one of these valid environments."
-   $TargetEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
+   write-warning "The specified -OptionalTargetEnvironment could not be found. Select one of these valid environments."
+   $OptionalTargetEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
 }
-
 
 # get Azure creds for source
 write-host "Enter credentials for the 'target' Azure Subscription..." -f Yellow
-if($TargetEnvironment)
+if($OptionalTargetEnvironment)
 {
-   $login= Login-AzureRmAccount -EnvironmentName $targetEnvironment
+   $login= Login-AzureRmAccount -EnvironmentName $OptionalTargetEnvironment
 }
 else
 {
    $login= Login-AzureRmAccount 
 }
+
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
 $SubscriptionId = $sub.SubscriptionId
@@ -449,7 +466,9 @@ write-host "Logged into $($sub.SubscriptionName) with subscriptionID $Subscripti
 
 if(! $resume)
 {
-    
+    [bool]$isSameEnv = $true
+    if($OptionalTargetEnvironment -ne $OptionalSourceEnvironment){[bool]$isSameEnv = $false}
+
     <###############################
      Verify Location
     ################################>
@@ -562,11 +581,17 @@ if(! $resume)
     foreach($srcStorageAccountObj in $srcStorageAccounts)
     {
         $srcStorageAccount = $srcStorageAccountObj.srcStorageAccount 
-        # create unique storage account name from old account name and guid
-        if($srcStorageAccount.Length -gt 16){$first16 = $srcStorageAccount.Substring(0,16)}else{$first16 = $srcStorageAccount}
-        [string] $guid = (New-Guid).Guid
-        [string] $DeststorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
-
+        if($isSameEnv)
+        {
+            # create unique storage account name from old account name and guid
+            if($srcStorageAccount.Length -gt 16){$first16 = $srcStorageAccount.Substring(0,16)}else{$first16 = $srcStorageAccount}
+            [string] $guid = (New-Guid).Guid
+            [string] $DeststorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
+        }
+        else
+        {
+            $DeststorageAccountName = $srcStorageAccount
+        }
         # select sku and other attributes
         $skuName = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property srcSkuName -Unique).srcSkuName
         $Encryption = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageEncryption -Unique).SrcStorageEncryption
@@ -789,7 +814,14 @@ if(! $resume)
         $pipName = $srcPIP.name
         $pipDomainNameLabel = $srcPIP.dnssettings.domainNameLabel
         # append 'new' to name so it is unique from existing
-        $NewPipDomainNameLabel = $pipDomainNameLabel + 'new'
+        if($isSameEnv)
+        {
+            $NewPipDomainNameLabel = $pipDomainNameLabel + 'new'
+        }
+        else
+        {
+            $NewPipDomainNameLabel = $pipDomainNameLabel 
+        }
         $AllocationMethod = $srcPIP.PublicIpAllocationMethod
         try
         {
