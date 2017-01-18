@@ -263,7 +263,7 @@ else
 }
 
 $loginID = $login.context.account.id
-$sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
+$sub = Get-AzureRmSubscription
 $SubscriptionId = $sub.SubscriptionId
 
 # check for multiple subs under same account and force user to pick one
@@ -424,7 +424,7 @@ if($OptionalTargetEnvironment -and (Get-AzureRMEnvironment -Name $OptionalTarget
    $OptionalTargetEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
 }
 
-# get Azure creds for source
+# get Azure creds for target
 write-host "Enter credentials for the 'target' Azure Subscription..." -f Yellow
 if($OptionalTargetEnvironment)
 {
@@ -436,7 +436,7 @@ else
 }
 
 $loginID = $login.context.account.id
-$sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
+$sub = Get-AzureRmSubscription 
 $SubscriptionId = $sub.SubscriptionId
 
 # check for multiple subs under same account and force user to pick one
