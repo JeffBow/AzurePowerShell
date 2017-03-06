@@ -145,8 +145,8 @@ function Get-StorageObject
             'StandardLRS'   {$skuName = 'Standard_LRS'} 
             'StandardZRS'   {$skuName = 'Standard_ZRS'} 
             'StandardGRS'   {$skuName = 'Standard_GRS'} 
-            'Standard_RAGRS'{$skuName = 'Standard_RAGRS'} 
-            'Premium_LRS'   {$skuName = 'Premium_LRS'} 
+            'StandardRAGRS'{$skuName = 'Standard_RAGRS'} 
+            'PremiumLRS'   {$skuName = 'Premium_LRS'} 
             default {$skuName = 'Standard_LRS'}
         }
      
