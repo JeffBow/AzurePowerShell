@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Archives and Rehydrates Azure V2 (ARM) Virtual Machines from specified resource group to save VM core allotment  
+    Archives or Rehydrates Azure V2 (ARM) Virtual Machines from specified resource group to save VM core allotment  
 
     
 .DESCRIPTION
@@ -8,12 +8,12 @@
    be used later to recreate the environment using the -Rehydrate switch
 
 .EXAMPLE
-   .\Archive-AzureRmVms.ps1 -ResourceGroupName 'CONTOSO'
+   .\Archive-AzureRMvm.ps1 -ResourceGroupName 'CONTOSO'
 
 Archives all VMs in the CONTOSO resource group
 
 .EXAMPLE
-   .\Archive-AzureRmVms.ps1 -ResourceGroupName 'CONTOSO' -Rehydrate 
+   .\Archive-AzureRMvm.ps1 -ResourceGroupName 'CONTOSO' -Rehydrate 
 
 Rehydrates the VMs using the saved configuration and remaining resource group components (VNet, NIC, NSG, AvSet etc...
 
