@@ -114,7 +114,7 @@ function Get-StorageObject
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcStorageAccount -Value $storageAccountName  
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI 
     # retrieve storage account key and storage context
-    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $StorageAccountName).Value[0]
+    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $StorageAccountName).Value[0]
     $StorageContext = New-AzureStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
     # add storage context to psObject
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name SrcStorageContext -Value $StorageContext 
@@ -363,7 +363,7 @@ foreach($vm in $resourceGroupVMs)
 foreach($sourceStorageAccount in $resourceGroupStorageAccounts)
 { 
   $sourceStorageAccountName = $sourceStorageAccount.StorageAccountName
-  $sourceStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $sourceStorageAccountName).Value[0]
+  $sourceStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $sourceStorageAccountName).Value[0]
   $sourceStorageContext = New-AzureStorageContext -StorageAccountName $sourceStorageAccountName -StorageAccountKey $sourceStorageAccountKey 
   $sourceStorageContainers = Get-AzureStorageContainer -Context $sourceStorageContext
   foreach($container in $sourceStorageContainers)
@@ -527,7 +527,7 @@ $sourceStorageObjects.srcURI
         
         $storageParams = @{
         "ResourceGroupName" = $resourceGroupName 
-        "AccountName" = $DeststorageAccountName 
+        "Name" = $DeststorageAccountName 
         "location" = $location
         "SkuName" = $skuName
         }
@@ -575,7 +575,7 @@ $sourceStorageObjects.srcURI
         try 
         {
             # get key and storage context of newly created storage account
-            $DestStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $DestStorageAccountName -ea Stop).Value[0] 
+            $DestStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $DestStorageAccountName -ea Stop).Value[0] 
             $DestStorageContext = New-AzureStorageContext -StorageAccountName $DestStorageAccountName -StorageAccountKey $DestStorageAccountKey -ea Stop -wa SilentlyContinue
         }
         catch 
@@ -1220,7 +1220,7 @@ foreach($srcVM in $resourceGroupVMs)
     if($resume)
     {
       $osStorageAccountName = $OSstorageContext.StorageAccountName
-      $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $osStorageAccountName).Value[0]
+      $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $osStorageAccountName).Value[0]
       $OSstorageContext = New-AzureStorageContext -StorageAccountName $osStorageAccountName -StorageAccountKey $StorageAccountKey
     }
     
@@ -1301,7 +1301,7 @@ foreach($srcVM in $resourceGroupVMs)
             if($resume)
             {
               $diskStorageAccountName = $diskStorageContext.StorageAccountName
-              $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $diskStorageAccountName).Value[0]
+              $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $diskStorageAccountName).Value[0]
               $diskStorageContext = New-AzureStorageContext -StorageAccountName $diskStorageAccountName -StorageAccountKey $StorageAccountKey
             }
 
