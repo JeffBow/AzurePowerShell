@@ -1,7 +1,9 @@
 <#
 .SYNOPSIS
-    Does copy of VHD blobs attached to each VM in a resource group to a designated backup container  
-    
+    Copies VHD blobs attached to each VM in a resource group to a designated backup container.  
+    Does not work with VMs configured with managed disks because they allow snapshots.
+	
+    Requires AzureRM module version 4.2.1 or later.
     
 .DESCRIPTION
    Copies VHD blobs from each VM in a resource group to the vhd-backups container or other container name
@@ -33,7 +35,7 @@
     Original Author:   https://github.com/JeffBow
     
  ------------------------------------------------------------------------
-               Copyright (C) 2016 Microsoft Corporation
+               Copyright (C) 2017 Microsoft Corporation
 
  You have a royalty-free right to use, modify, reproduce and distribute
  this sample script (and/or any modified version) in any way
@@ -42,11 +44,6 @@
  ------------------------------------------------------------------------
 #>
 #Requires -Version 4.0
-#Requires -Module AzureRM.Profile
-#Requires -Module AzureRM.Resources
-#Requires -Module AzureRM.Storage
-#Requires -Module AzureRM.Compute
-
 
 param(
 
@@ -63,10 +60,13 @@ param(
 )
 $ProgressPreference = 'SilentlyContinue'
 
-if ((Get-Module AzureRM.profile).Version -lt "2.1.0") {
-   Write-warning "Old Version of Azure Modules  $((Get-Module AzureRM.profile).Version.ToString()) detected.  Minimum of 2.1.0 required. Run Update-AzureRM"
+import-module AzureRM 
+
+if ((Get-Module AzureRM).Version -lt "4.2.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
    BREAK
 }
+
 
 <###############################
  Get Storage Context function
@@ -78,7 +78,7 @@ function Get-StorageObject
     $strgDNS = $split[2]
     $splitDNS = $strgDNS.Split('.')
     $storageAccountName = $splitDNS[0]
-    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $StorageAccountName).Value[0]
+    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $StorageAccountName).Value[0]
     $StorageContext = New-AzureStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
   
     
@@ -161,16 +161,16 @@ function copy-azureBlob
 write-host "Enter credentials for your Azure Subscription..." -F Yellow
 $login= Login-AzureRmAccount -EnvironmentName $Environment
 $loginID = $login.context.account.id
-$sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
-$SubscriptionId = $sub.SubscriptionId
+$sub = Get-AzureRmSubscription 
+$SubscriptionId = $sub.Id
 
 # check for multiple subs under same account and force user to pick one
 if($sub.count -gt 1) 
 {
-    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).SubscriptionId
+    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId| Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
-    $SubscriptionId = $sub.SubscriptionId
+    $SubscriptionId = $sub.Id
 }
 
    
@@ -182,7 +182,7 @@ if(! $SubscriptionId)
    break
 }
 
-write-verbose "Logged into $($sub.SubscriptionName) with subscriptionID $SubscriptionId as $loginID" -verbose
+write-verbose "Logged into $($sub.Name) with subscriptionID $SubscriptionId as $loginID" -verbose
 
 
 $resourceGroupVMs = Get-AzureRMVM -ResourceGroupName $resourceGroupName

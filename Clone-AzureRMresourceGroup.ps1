@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
     Clones Azure V2 (ARM) resources from one resource group into a new resource group in the same Azure Subscriptions 
-    
+    Requires AzureRM module version 4.2.1 or later.
     
 .DESCRIPTION
    Copies configurations of a resource group into a new one
    This is intended mostly for Azure V2 virtual machines and will include copying virtual disks, virtual
-   network, load balancers, Public IPs and other associated storage accounts and blob files.
+   network, load balancers, Public IPs and other associated storage accounts, blob files and now managed disks.
 
    
   Due to uniqueness requirements DNS names of source and targets, the following renaming occurs during reprovisioning
@@ -53,7 +53,7 @@
     Original Author:   https://github.com/JeffBow
     
  ------------------------------------------------------------------------
-               Copyright (C) 2016 Microsoft Corporation
+               Copyright (C) 2017 Microsoft Corporation
 
  You have a royalty-free right to use, modify, reproduce and distribute
  this sample script (and/or any modified version) in any way
@@ -62,11 +62,6 @@
  ------------------------------------------------------------------------
 #>
 #Requires -Version 4.0
-#Requires -Module AzureRM.Profile
-#Requires -Module AzureRM.Resources
-#Requires -Module AzureRM.Storage
-#Requires -Module AzureRM.Compute
-#Requires -Module AzureRM.Network
 
 param(
 
@@ -93,17 +88,20 @@ $VHDstorageObjectsResumePath = "$env:TEMP\$resourcegroupname.VHDstorageObjects.r
 $jsonBackupPath = "$env:TEMP\$resourcegroupname.json"
 $ProgressPreference = 'SilentlyContinue'
 
-if ((Get-Module AzureRM.profile).Version -lt "2.1.0") {
-   Write-warning "Old Version of Azure Modules  $((Get-Module AzureRM.profile).Version.ToString()) detected.  Minimum of 2.1.0 required. Run Update-AzureRM"
+import-module AzureRM 
+
+if ((Get-Module AzureRM).Version -lt "4.2.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
    BREAK
 }
+
 
 
 <###############################
  Get Storage Context function
 ################################>
 function Get-StorageObject 
-{ param($resourceGroupName, $srcURI) 
+{ param($resourceGroupName, $srcURI, $srcName) 
     
     $split = $srcURI.Split('/')
     $strgDNS = $split[2]
@@ -112,7 +110,8 @@ function Get-StorageObject
     # add uri and storage account name to custom PSobject
     $PSobjSourceStorage = New-Object -TypeName PSObject
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcStorageAccount -Value $storageAccountName  
-    $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI 
+    $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI
+    $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcName
     # retrieve storage account key and storage context
     $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $StorageAccountName).Value[0]
     $StorageContext = New-AzureStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
@@ -148,7 +147,7 @@ function Get-StorageObject
 <###############################
   get available resources function
 ################################>
-function get-availableResources
+function Get-AvailableResources
 { param($resourceType, $location)
 
     $resource = Get-AzureRmVMUsage -Location $location | where{$_.Name.value -eq $resourceType}
@@ -157,6 +156,44 @@ function get-availableResources
 
 }
 
+<###############################
+  get blob copy status
+################################>
+function Get-BlobCopyStatus
+{ param($context, $containerName, $blobName)
+    
+    if($blobName)
+    {
+        write-verbose "Checking VHD blob copy for $blobName" -verbose
+        $blob = Get-AzureStorageBlob -Context $context -container $containerName -Blob $blobName
+    }
+    else
+    {
+        write-verbose "Checking VHD blob copy for container $containerName" -verbose 
+        $blob = Get-AzureStorageBlob -Context $context -container $containerName 
+    }
+
+    do
+    {
+        $rtn = $blob | Get-AzureStorageBlobCopyState
+        $rtn | Select-Object Source, Status, BytesCopied, TotalBytes | Format-List
+        if($rtn.status  -ne 'Success')
+        {
+            write-warning "VHD blob copy is not complete"
+            $rh = read-host "Press <Enter> to refresh or type EXIT and press <Enter> to quit copy status updates and resume later"
+            if(($rh.ToLower()) -eq 'exit')
+            {
+                write-output "Run script with -resume switch to continue creating VMs after file copy has completed."
+                BREAK
+            }
+        }
+    }
+    while($rtn.status  -ne 'Success')
+
+    # exit script if user breaks out of above loop   
+    if($rtn.status  -ne 'Success'){EXIT}
+
+}
 
 <###############################
   Copy blob function
@@ -238,7 +275,7 @@ function copy-azureBlob
 if($Environment -and (Get-AzureRMEnvironment -Name $Environment) -eq $null)
 {
    write-warning "The specified -Environment could not be found. Specify one of these valid environments."
-   $Environment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your subscription" -OutputMode Single).Name
+   $Environment = (Get-AzureRMEnvironment | Select-Object Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your subscription" -OutputMode Single).Name
 }
 
 # get Azure creds for source
@@ -252,13 +289,14 @@ else
    $login= Login-AzureRmAccount 
 } 
 $loginID = $login.context.account.id
-$sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
-$SubscriptionId = $sub.SubscriptionId
+$sub = Get-AzureRmSubscription 
+$SubscriptionId = $sub.Id
+
 
 # check for multiple subs under same account and force user to pick one
 if($sub.count -gt 1) 
 {
-    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).SubscriptionId
+    $SubscriptionId = (Get-AzureRmSubscription | Select-Object * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId | Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
 }
@@ -272,7 +310,9 @@ if(! $SubscriptionId)
    break
 }
 
-write-host "Logged into $($sub.SubscriptionName) with subscriptionID $SubscriptionId as $loginID" -f Green
+$SubscriptionName = $sub.Name
+
+write-host "Logged into $SubscriptionName with subscriptionID $SubscriptionId as $loginID" -f Green
 
 # check for valid source resource group
 if(-not ($sourceResourceGroup = Get-AzureRmResourceGroup  -ResourceGroupName $resourceGroupName)) 
@@ -283,114 +323,119 @@ if(-not ($sourceResourceGroup = Get-AzureRmResourceGroup  -ResourceGroupName $re
 
 if(! $resume)
 {
+    # create export JSON for backup purposes
+    $RGexport = Export-AzureRmResourceGroup -ResourceGroupName $resourceGroupName -Path $jsonBackupPath -IncludeParameterDefaultValue -Force -wa SilentlyContinue
 
-# create export JSON for backup purposes
-$RGexport = Export-AzureRmResourceGroup -ResourceGroupName $resourceGroupName -Path $jsonBackupPath -IncludeParameterDefaultValue -Force -wa SilentlyContinue
+    # get configuration details for different resources
+    [string] $location = $sourceResourceGroup.location
+    $resourceGroupStorageAccounts = Get-AzureRmStorageAccount -ResourceGroupName $resourceGroupName
+    $resourceGroupManagedDisks = Get-AzureRmDisk -ResourceGroupName $resourceGroupName
+    $resourceGroupVirtualNetworks = Get-AzureRmVirtualNetwork -ResourceGroupName $resourceGroupName
+    $resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
+    $resourceGroupNSGs = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $resourceGroupName
+    $resourceGroupAvSets = Get-AzureRmAvailabilitySet -ResourceGroupName $resourceGroupName 
+    $resourceGroupVMs = Get-AzureRMVM -ResourceGroupName $resourceGroupName
+    $resourceGroupPIPs = Get-AzureRmPublicIpAddress -ResourceGroupName $resourceGroupName
+    $resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
+    $resourceGroupLBs = Get-AzureRmLoadBalancer -ResourceGroupName $resourceGroupName
+    if(! $resourceGroupVMs){write-warning "No virtual machines found in resource group $resourceGroupName"; break}
 
-
-
-# get configuration details for different resources
-[string] $location = $sourceResourceGroup.location
-$resourceGroupStorageAccounts = Get-AzureRmStorageAccount -ResourceGroupName $resourceGroupName
-$resourceGroupVirtualNetworks = Get-AzureRmVirtualNetwork -ResourceGroupName $resourceGroupName
-$resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
-$resourceGroupNSGs = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $resourceGroupName
-$resourceGroupAvSets = Get-AzureRmAvailabilitySet -ResourceGroupName $resourceGroupName 
-$resourceGroupVMs = Get-AzureRMVM -ResourceGroupName $resourceGroupName
-$resourceGroupPIPs = Get-AzureRmPublicIpAddress -ResourceGroupName $resourceGroupName
-$resourceGroupNICs = Get-AzureRmNetworkInterface -ResourceGroupName $resourceGroupName
-$resourceGroupLBs = Get-AzureRmLoadBalancer -ResourceGroupName $resourceGroupName
-if(! $resourceGroupVMs){write-warning "No virtual machines found in resource group $resourceGroupName"; break}
-
-
-
-# display what we found
-write-host "The following items will be copied:" -f DarkGreen
-write-host "Storage Accounts:" -f DarkGreen
-$resourceGroupStorageAccounts.StorageAccountName
-write-host "Virtual Machines:" -f DarkGreen
-$resourceGroupVMs.name
-write-host "Operating system disks:" -f DarkGreen
-$resourceGroupVMs.storageProfile.osdisk.name
-write-host "Data disks:" -f DarkGreen
-$resourceGroupVMs.datadisknames
-# check to make sure VMs are not running
-write-host "Current status of VMs:" -f DarkGreen
-$resourceGroupVMs | %{
-   $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
-   write-output "$($_.name) status is $status" 
-   if($status -eq 'VM running'){write-warning "All virtual machines in this resource group are not stopped.  Please stop all VMs and try again"; break}
-}
-
-write-host "Virtual networks:" -f DarkGreen
-$resourceGroupVirtualNetworks.name
-write-host "Network Security Groups:" -f DarkGreen
-$resourceGroupNSGs.name
-write-host "Load Balancers:" -f DarkGreen
-$resourceGroupLBs.name
-write-host "Public IPs:" -f DarkGreen
-$resourceGroupPIPs.name
-
-
-
-# create array of custom PSobjects that contain storage account details and security context for each VHD that is found
-# this is consumed later during the copy process after you log into the target subscription
-[array]$sourceVHDstorageObjects = $()
-write-verbose "Retrieving storage context for each source blob" -Verbose
-
-foreach($vm in $resourceGroupVMs) 
-{
-    # get storage account name from VM.URI
-    $vmURI = $vm.storageprofile.osdisk.vhd.uri
-    $obj = $null
-    $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $vmURI
-    [array]$sourceVHDstorageObjects += $obj 
-    
-    if($vm.storageProfile.datadisks)
-    {
-       foreach($disk in $vm.storageProfile.datadisks) 
-       {
-         $diskURI = $disk.vhd.uri
-         $obj = $null
-         $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $diskURI
-         [array]$sourceVHDstorageObjects += $obj
-       }
+    # display what we found
+    write-host "The following items will be copied:" -f DarkGreen
+    write-host "Storage Accounts:" -f DarkGreen
+    $resourceGroupStorageAccounts.StorageAccountName
+    write-host "Managed Disks:" -f DarkGreen
+    $resourceGroupManagedDisks.Name
+    write-host "Virtual Machines:" -f DarkGreen
+    $resourceGroupVMs.name
+    write-host "Operating system disks:" -f DarkGreen
+    $resourceGroupVMs.storageProfile.osdisk.name
+    write-host "Data disks:" -f DarkGreen
+    $resourceGroupVMs.datadisknames
+    # check to make sure VMs are not running
+    write-host "Current status of VMs:" -f DarkGreen
+    $resourceGroupVMs | %{
+        $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
+        write-output "$($_.name) status is $status" 
+        if($status -eq 'VM running')
+        {
+            write-warning "All virtual machines in this resource group are not stopped.  Please stop all VMs and try again"
+            break
+        }
     }
-}
 
-[array]$sourceStorageObjects = $()
-#get any storage accounts and blobs that were not VHDs attached to VMs
-foreach($sourceStorageAccount in $resourceGroupStorageAccounts)
-{ 
-  $sourceStorageAccountName = $sourceStorageAccount.StorageAccountName
-  $sourceStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $sourceStorageAccountName).Value[0]
-  $sourceStorageContext = New-AzureStorageContext -StorageAccountName $sourceStorageAccountName -StorageAccountKey $sourceStorageAccountKey 
-  $sourceStorageContainers = Get-AzureStorageContainer -Context $sourceStorageContext
-  foreach($container in $sourceStorageContainers)
-  {
-    $blobs = Get-AzureStorageBlob -Container $container.name -Context $sourceStorageContext
+    write-host "Virtual networks:" -f DarkGreen
+    $resourceGroupVirtualNetworks.name
+    write-host "Network Security Groups:" -f DarkGreen
+    $resourceGroupNSGs.name
+    write-host "Load Balancers:" -f DarkGreen
+    $resourceGroupLBs.name
+    write-host "Public IPs:" -f DarkGreen
+    $resourceGroupPIPs.name
 
-    foreach($blob in $blobs) 
+
+    # create array of custom PSobjects that contain storage account details and security context for each VHD that is found
+    # this is consumed later during the copy process after you log into the target subscription
+    [array]$sourceVHDstorageObjects = $()
+    write-verbose "Retrieving storage context for each source blob" -Verbose
+
+    foreach($vm in $resourceGroupVMs) 
     {
-      # get storage account details from uri
-      $URI = $blob.ICloudBlob.uri.Absoluteuri
-      # only add to sourceStorageObjects if it isn't in sourceVHDstorageObjects - must do replace to adapt to absoluteURI
-      if($sourceVHDstorageObjects.srcURI -notcontains ($URI.replace('https','http')) -and $sourceVHDstorageObjects.srcURI -notcontains $URI)
-      {
-        $obj = $null
-        $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $URI
-        [array]$sourceStorageObjects += $obj 
-      }
+        # get blob storage account name from VM.URI
+        if($vm.storageprofile.osdisk.vhd)
+        {
+            $vmURI = $vm.storageprofile.osdisk.vhd.uri
+            $obj = $null
+            $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $vmURI -srcName $vm.storageprofile.osdisk.Name -srcAccountType 'NULL'
+            [array]$sourceVHDstorageObjects += $obj 
+        }
+
+
+        if($vm.storageProfile.datadisks)
+        {
+            foreach($disk in $vm.storageProfile.datadisks) 
+            {
+                if($disk.vhd)
+                {
+                    $diskURI = $disk.vhd.uri
+                    $obj = $null
+                    $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $diskURI -srcName $disk.Name 
+                    [array]$sourceVHDstorageObjects += $obj
+                }
+            }
+        }
     }
-  }
-}
-
-write-host "Additional storage blobs:" -f DarkGreen
-$sourceStorageObjects.srcURI
 
 
+    [array]$sourceStorageObjects = $()
+    #get any storage accounts and blobs that were not VHDs attached to VMs
+    foreach($sourceStorageAccount in $resourceGroupStorageAccounts)
+    { 
+        $sourceStorageAccountName = $sourceStorageAccount.StorageAccountName
+        $sourceStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $sourceStorageAccountName).Value[0]
+        $sourceStorageContext = New-AzureStorageContext -StorageAccountName $sourceStorageAccountName -StorageAccountKey $sourceStorageAccountKey 
+        $sourceStorageContainers = Get-AzureStorageContainer -Context $sourceStorageContext
+        foreach($container in $sourceStorageContainers)
+        {
+            $blobs = Get-AzureStorageBlob -Container $container.name -Context $sourceStorageContext
 
+            foreach($blob in $blobs) 
+            {
+                # get storage account details from uri
+                $URI = $blob.ICloudBlob.uri.Absoluteuri
+                # only add to sourceStorageObjects if it isn't in sourceVHDstorageObjects - must do replace to adapt to absoluteURI
+                if($sourceVHDstorageObjects.srcURI -notcontains ($URI.replace('https','http')) -and $sourceVHDstorageObjects.srcURI -notcontains $URI)
+                {
+                    $obj = $null
+                    $obj = Get-StorageObject -resourceGroupName $resourceGroupName -srcURI $URI -srcName $blob.Name 
+                    [array]$sourceStorageObjects += $obj 
+                }
+            }
+        }
+    }
 
+    write-host "Additional storage blobs:" -f DarkGreen
+    $sourceStorageObjects.srcURI
 
 
 
@@ -409,17 +454,20 @@ $sourceStorageObjects.srcURI
 
     if($NewLocation)
     {
-        $location = $NewLocation
-
+        $srcLocation = $location
+	    $location = $NewLocation
+    
         Write-Output "Verifying specified location: $location ..."
         # Prompt for location if provided location doesn't exist in current environment.
-        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).DisplayName
+        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
         if(! $location) 
         {
             write-warning "$NewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-            $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).DisplayName
+            $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
         }
     }
+
+
 
     <###############################
      Verify Available Resources 
@@ -427,10 +475,10 @@ $sourceStorageObjects.srcURI
 
     foreach ($vmSize in ($resourceGroupVMs.hardwareprofile.vmsize))
     {
-     $cores = $null
-     $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
- 
-     $totalCoresNeeded = $cores + $totalCoresNeeded
+        $cores = $null
+        $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
+    
+        $totalCoresNeeded = $cores + $totalCoresNeeded
     }
 
 
@@ -440,7 +488,6 @@ $sourceStorageObjects.srcURI
     $TotalAvailabeCores = Get-availableResources -ResourceType 'cores' -Location $location
     if($totalCoresNeeded -gt $TotalAvailabeCores){Write-Warning "Insufficent available cores in location $location. Script halted."; break}
     
-
     $TotalAvailabeAVs = Get-availableResources -ResourceType 'availabilitySets' -Location $location
     if($resourceGroupAvSets.count -gt $TotalAvailabeAVs){Write-Warning "Insufficent Availability Sets in location $location. Script halted."; break}
    
@@ -470,23 +517,23 @@ $sourceStorageObjects.srcURI
     {
         write-verbose "Creating new resource group $resourceGroupName in $location" -Verbose
         $NewResourceGroup  = New-AzureRmResourceGroup -Name $ResourceGroupName -Location $location -ea Stop -wa SilentlyContinue
-        write-output "The resource group $resourceGroupName was created in subscription $($sub.SubscriptionName)"
+        write-output "The new resource group $resourceGroupName was created in subscription $SubscriptionName"
     }
     catch
     {
         $_
-        write-warning "The resource group $resourceGroupName was not created. Exiting the script."
+        write-warning "The new resource group $resourceGroupName was not created. Exiting the script."
         break
     }
 
 
 
-<###############################
+    <###############################
 
- Create new destination storage accounts
- and copy blobs
- 
- ################################>
+    Create new destination storage accounts
+    and copy blobs
+    
+    ################################>
 
 
     # initialize array to store new destination storage account names relative to srcURI
@@ -592,16 +639,18 @@ $sourceStorageObjects.srcURI
             $srcURI = $obj.srcURI
 
             copy-azureBlob -srcUri $srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext
-            #copy-azureBlob -srcUri $srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext -containerName 'vhd-backup'
-            
+              
             # add srcURI and destination storage account name to custom PSobject
             $PSobjVHDstorage = New-Object -TypeName PSObject
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $obj.srcName
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $DestStorageContext  
-            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcAccountType -Value 'NULL' 
 
             [array]$VHDstorageObjects += $PSobjVHDstorage
         }
-    
+
+
         
         # start copy for remaining blobs           
         if($srcStorageAccountNames)
@@ -613,15 +662,113 @@ $sourceStorageObjects.srcURI
         }   
 
 
+    } # end of foreach srcStorageAccounts
+
+
+
+
+    # create temporary blob storage account to stage managed disks that will be copied 
+    if($newLocation -and $location -ne $srcLocation -and $resourceGroupManagedDisks)
+    {
+        if($resourceGroupName.Length -gt 16){$first16 = $resourceGroupName.Substring(0,16)}else{$first16 = $resourceGroupName }
+        [string] $guid = (New-Guid).Guid
+        [string] $tempStorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
+
+        
+        $storageParams = @{
+        "ResourceGroupName" = $resourceGroupName 
+        "Name" = $tempstorageAccountName 
+        "location" = $location
+        "SkuName" = 'Standard_LRS'
+        }
+            
+        # Create new storage account
+        do 
+        {
+            try
+            {
+                # create new storage account
+                write-verbose "Creating temmporary storage account $tempstorageAccountName in resource group $resourceGroupName at location $location" -verbose
+                $newStorageAccount = New-AzureRmStorageAccount @storageParams -ea Stop -wa SilentlyContinue 
+                write-output "The storage account $tempstorageAccountName was created"
+            }
+            catch
+            {
+                $_
+                write-warning "Failed to create temporary storage account. Storage account name $DeststorageAccountName may already exists."
+                $tempstorageAccountName = read-host   'Enter a different Temporary Storage Account Name. This is used to stage managed disks.'
+            }
+        }
+        while(! $newStorageAccount)
+
+
+        try 
+        {
+            # get key and storage context of newly created storage account
+            $tempStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $tempStorageAccountName -ea Stop).Value[0] 
+            $tempStorageContext = New-AzureStorageContext -StorageAccountName $tempStorageAccountName -StorageAccountKey $tempStorageAccountKey -ea Stop -wa SilentlyContinue
+            $tempContainer = New-AzureStorageContainer -Name 'vhdblobs' -Context $tempStorageContext -Permission Blob  -ea Stop -wa SilentlyContinue
+        }
+        catch 
+        {
+            write-warning "Could not retrieve storage account key or storage context for $tempStorageAccountName . Exiting the script."
+            break
+        }
+
     }
 
+    # start copy of all Managed Disks       
+    foreach($md in $resourceGroupManagedDisks)
+    { 
+        $srcMDname = $md.Name
+        $srcAccountType = $md.AccountType
+        $srcMDid = $md.id
+        # $srcOStype = $md.OsType
 
-<###############################
+	    if($newLocation -and $location -ne $srcLocation)
+	    {
+            #Get the SAS URL of the VHD blob and do a copy process to the temp storage account if the MD is out of region
+            $AccessURI = $md | Grant-AzureRmDiskAccess -Access 'Read' -DurationInSecond 10800
+            $AccessSAS = $AccessURI.AccessSAS
 
- Create new network resources.  
- Vnets, NICs, Loadbalancers, PIPs
+	        $rtn = Start-AzureStorageBlobCopy -AbsoluteUri $AccessSAS -DestBlob $srcMDname -DestContainer $tempContainer.Name -destContext $tempStorageContext
+            $PSobjVHDstorage = New-Object -TypeName PSObject
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcMDname 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $tempStorageContext 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $rtn.ICloudBlob.Uri.AbsoluteUri
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcAccountType -Value $srcAccountType 
 
-################################>
+            [array]$VHDstorageObjects += $PSobjVHDstorage
+        }
+        else
+	    {
+            # if it isn't a new location/region, use New-AzureRmDiskConfig -CreateOption Copy and the resource ID of the source MD
+            # instead of doing a blob copy of the VHD from the SAS URL
+            write-verbose "Creating new managed disk $srcMDname in $location" -Verbose
+
+            try
+	        {
+        	    $mdiskconfig = New-AzureRmDiskConfig -AccountType $srcAccountType -Location $location  -CreateOption Copy -SourceResourceId $srcMDid
+        	    $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
+		        write-output "The managed disk $srcMDname was created."
+            }
+            catch
+            {
+                $_
+                write-warning "Failed to create new managed disk $srcMDname"
+            }        
+	    }
+        
+    }
+    
+
+
+    <###############################
+
+    Create new network resources.  
+    Vnets, NICs, Loadbalancers, PIPs
+
+    ################################>
 
      # create new Network Security Groups
     foreach($srcNSG in $resourceGroupNSGs)
@@ -670,7 +817,6 @@ $sourceStorageObjects.srcURI
     foreach($srcNetwork in $resourceGroupVirtualNetworks)
     {
         $destVNname = $srcNetwork.Name
-        write-output "Creating virtual network $destVNname in resource group $resourceGroupName at location $location" -verbose
         $destAddressPrefix = $srcNetwork.AddressSpace.AddressPrefixes
         $destDNSserver = $srcNetwork.DhcpOptions.DnsServers
         $destSubnets = $srcNetwork.Subnets
@@ -712,11 +858,28 @@ $sourceStorageObjects.srcURI
     # create new Availability sets
     foreach($srcAVset in $resourceGroupAvSets)
     {
-        $AVName = $srcAVset.name
-        try
+                
+        $avParams = @{
+                "Name" = $srcAVset.name  
+                "ResourceGroupName" = $resourceGroupName  
+                "Location" = $location
+                "sku" = $srcAVset.Sku
+                "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
+                "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
+                "ea" = 'Stop'
+                "wa" = 'SilentlyContinue'
+        }
+        
+        if($srcAVset.Managed)
+        {
+            $avParams.Add("Managed", $srcAVset.Managed)
+        }
+
+
+         try
         {
         write-verbose "Creating availability set $AVname in resource group $resourceGroupName at location $location" -verbose
-        $NewAvailabilitySet = New-AzureRmAvailabilitySet -Name $AVName -ResourceGroupName $resourceGroupName  -Location $location -ea Stop -wa SilentlyContinue
+        $NewAvailabilitySet = New-AzureRmAvailabilitySet @avParams 
         Write-Output "Availability Set $AVname was created"
         }
         catch
@@ -734,13 +897,28 @@ $sourceStorageObjects.srcURI
     {
         $pipName = $srcPIP.name
         $pipDomainNameLabel = $srcPIP.dnssettings.domainNameLabel
+
+        $pipParams = @{
+                "Name" = $pipName 
+                "ResourceGroupName" = $resourceGroupName  
+                "Location" = $location
+                "AllocationMethod" = $srcPIP.PublicIpAllocationMethod
+                "ea" = 'Stop'
+                "wa" = 'SilentlyContinue'
+        }
+                
         # append 'new' to name so it is unique from existing
-        $NewPipDomainNameLabel = $pipDomainNameLabel + 'new'
-        $AllocationMethod = $srcPIP.PublicIpAllocationMethod
+        if($pipDomainNameLabel)
+        {
+          $NewPipDomainNameLabel = $pipDomainNameLabel + 'new'
+          $pipParams.Add("DomainNameLabel", $NewPipDomainNameLabel)
+        }
+        
+        
         try
         {
             write-verbose "Creating public IP $pipName in resource group $resourceGroupName at location $location" -verbose
-            $PIP = New-AzureRmPublicIpAddress -Name $pipName -DomainNameLabel $NewPipDomainNameLabel  -ResourceGroupName $ResourceGroupName -Location $location -AllocationMethod $AllocationMethod -ea Stop -wa SilentlyContinue
+            $PIP = New-AzureRmPublicIpAddress @pipParams
             Write-Output "Public IP $pipName was created with DomainName Label $NewPipDomainNameLabel"
         }
         catch
@@ -1113,37 +1291,25 @@ $sourceStorageObjects.srcURI
     } # end of foreach nic
 
     $resourceGroupVMs | ConvertTo-Json -depth 10 | Out-File $resourceGroupVMresumePath
-    $VHDstorageObjects | ConvertTo-Json | Out-File $VHDstorageObjectsResumePath
-
+    
     # monitor file copy - do not proceed with VM creation until it is complete.  Allows for user to break out and use -resume switch 
-
-   
-    do{
+    # only applies when VHD blobs are present
+    if($VHDstorageObjects)
+    {
+        $VHDstorageObjects | ConvertTo-Json | Out-File $VHDstorageObjectsResumePath
 
         $VHDstorageObjects | Select-Object -Property destStorageContext -Unique | %{
-        
-           $containers = Get-AzureStorageContainer -Context $_.destStorageContext 
-        
-           foreach($container in $containers){
-             $rtn = Get-AzureStorageBlob -Container $container.name -Context $_.destStorageContext  | Get-AzureStorageBlobCopyState
-             $rtn | select Source, Status, BytesCopied, TotalBytes | fl
-           }
+    
+            $containers = Get-AzureStorageContainer -Context $_.destStorageContext 
+            
+            foreach($container in $containers)
+            {
+                # monitor disk copy
+                Get-BlobCopyStatus -Context $_.destStorageContext -containerName $container.name
+            }
         }
-        if($rtn.status  -ne 'Success')
-        {
-          write-warning "VHD blob copy is not complete"
-          $rh = read-host "Press <Enter> to refresh copy status or type EXIT and press <Enter> to quit and resume later"
-          if(($rh.ToLower()) -eq 'exit')
-          {
-           write-output "Run script with -resume switch to continue creating VMs after file copy has completed."
-           BREAK
-          }
-        }
-    }
-    while($rtn.status  -ne 'Success')
 
-    # exit script if user breaks out of above loop   
-    if($rtn.status  -ne 'Success'){EXIT}
+    }
 
 } 
 else # if  resume
@@ -1171,15 +1337,61 @@ else # if  resume
         write-warning "Failed to load resume file $resourceGroupVMresumePath  Cannot resume. Exiting script."
     }
 
-    try 
+  
+    $VHDstorageObjects = (get-content $VHDstorageObjectsResumePath -ea SilentlyContinue) -Join "`n"| ConvertFrom-Json 
+    
+}
+
+#create managed disk from temp blob copy location after blob copy has been confirmed
+if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $newLocation -and $location -ne $srcLocation)
+ {
+ 
+    foreach($mdObj in $VHDstorageObjects|where{$_.srcAccountType -ne 'NULL'})
     {
-        $VHDstorageObjects = (get-content $VHDstorageObjectsResumePath -ea Stop) -Join "`n"| ConvertFrom-Json 
+        # refresh the storage context object if -resume
+        if($resume)
+        {
+        $tempStorageContext =  $mdObj.destStorageContext 
+        $tempStorageAccountName = $tempStorageContext.StorageAccountName
+        $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $tempStorageAccountName).Value[0]
+        $tempStorageContext = New-AzureStorageContext -StorageAccountName $tempStorageAccountName -StorageAccountKey $StorageAccountKey
+        }
+        
+        $mdTempContainerName = (Get-AzureStorageContainer -Context $tempStorageContext).Name
+        $srcMDuri = $mdObj.srcURI
+        $srcMDname = $mdObj.srcName
+        $srcAccountType = $mdObj.srcAccountType
+
+
+        
+
+        Get-BlobCopyStatus -Context $tempStorageContext -containerName $mdTempContainerName -BlobName $srcMDname
+        
+        #remove the SAS access on the original
+        Get-AzureRmDisk | where{$_.Name -eq $srcMDname} | Revoke-AzureRmDiskAccess | Out-Null
+
+        write-verbose "Creating new managed disk $srcMDname in $location" -Verbose
+        try
+        {
+            $mdiskconfig = New-AzureRmDiskConfig -AccountType $srcAccountType -Location $location  -CreateOption Import -SourceUri $srcMDuri 
+            $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
+            write-output "The managed disk $srcMDname was created."
+
+
+        }
+        catch
+        {
+            $_
+            write-warning "Failed to create new managed disk $srcMDname"
+        }
+        
     }
-    catch
-    {
-        $_
-        write-warning "Failed to load resume file $VHDstorageObjectsResumePath  Cannot resume. Exiting script."
-    }
+
+    #cleanup
+        write-verbose "All managed disks have been created. Removing temporary storage account $tempStorageAccountName" -Verbose
+        Remove-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $tempStorageAccountName -Force | out-null
+        write-output "The storage account $tempStorageAccountName was removed" 
+  
 }
 
 
@@ -1208,53 +1420,42 @@ foreach($srcVM in $resourceGroupVMs)
         $AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $avSetName
     }  
     
-    # get blob and container names from source URI
-    $OSsrcURI = $srcVM.storageprofile.osdisk.vhd.uri
-    $OSsplit = $OSsrcURI.Split('/')
-    # TODO: assumes one level of container.  need to adjust to allow for something like container/myfolder/vhdfolder
-    $OSblobName = $OSsplit[($OSsplit.count -1)]
-    $OScontainerName = $OSsplit[3]
-    # get the new destination storage account name from our custom object array
-    $OSstorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
-    # refresh the storage context object if -resume
-    if($resume)
+    # get blob and container names from source URI for blobs
+    if($srcVM.storageprofile.osdisk.vhd)
     {
-      $osStorageAccountName = $OSstorageContext.StorageAccountName
-      $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $osStorageAccountName).Value[0]
-      $OSstorageContext = New-AzureStorageContext -StorageAccountName $osStorageAccountName -StorageAccountKey $StorageAccountKey
-    }
-    
-    # set the OSdisk URI
-    $OSDiskUri = "$($OSstorageContext.BlobEndPoint)$OScontainerName/$OSblobName"
-   
-    do{
-       $rtn = $null
-       write-verbose "Checking VHD blob copy for $OSblobName" -verbose
-       $rtn = Get-AzureStorageBlob -Context $OSstorageContext -container $OScontainerName -Blob $OSblobName | Get-AzureStorageBlobCopyState
-       $rtn | select Source, Status, BytesCopied, TotalBytes | fl
-       if($rtn.status  -ne 'Success'){
-        write-warning "VHD blob copy is not complete"
-        $rh = read-host "Press <Enter> to refresh or type EXIT and press <Enter> to quit copy status updates and resume later"
-        if(($rh.ToLower()) -eq 'exit')
+        $OSsrcURI = $srcVM.storageprofile.osdisk.vhd.uri
+        $OSsplit = $OSsrcURI.Split('/')
+        # TODO: assumes one level of container.  need to adjust to allow for something like container/myfolder/vhdfolder
+        $OSblobName = $OSsplit[($OSsplit.count -1)]
+        $OScontainerName = $OSsplit[3]
+        # get the new destination storage account name from our custom object array
+        $OSstorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+        
+        # refresh the storage context object if -resume
+        if($resume)
         {
-          write-output "Run script with -resume switch to continue creating VMs after file copy has completed."
-          BREAK
+        $osStorageAccountName = $OSstorageContext.StorageAccountName
+        $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $osStorageAccountName).Value[0]
+        $OSstorageContext = New-AzureStorageContext -StorageAccountName $osStorageAccountName -StorageAccountKey $StorageAccountKey
         }
-       }  
+        
+        # set the OSdisk URI
+        $OSDiskUri = "$($OSstorageContext.BlobEndPoint)$OScontainerName/$OSblobName"
+        
+        # verify disk copy
+        Get-BlobCopyStatus -Context $OsStorageContext -containerName $OScontainerName -BlobName $OsBlobName
     }
-   while($rtn.status  -ne 'Success')
-
-    # exit script if user breaks out of above loop   
-    if($rtn.status  -ne 'Success'){EXIT}
-
         
     # get the Network Interface Card we created previously based on the original source name
-    $NICRef = ($srcVM.NetworkInterfaceIDs).Split('/')
-    $NICName = $NICRef[($NICRef.count -1)]
-    $NIC = Get-AzureRmNetworkInterface -Name $NICName -ResourceGroupName $ResourceGroupName 
+    $newNICs = @()
+    foreach($nicID in $srcVM.NetworkProfile.NetworkInterfaces.id)
+    {
+        $NICRef = $nicID.Split('/')
+        $NICName = $NICRef[($NICRef.count -1)]
+        $newNICs += Get-AzureRmNetworkInterface -Name $NICName -ResourceGroupName $ResourceGroupName 
+    }
+    
 
-    
-    
 
     # create VM Config
     if($AvailabilitySet)
@@ -1266,17 +1467,37 @@ foreach($srcVM in $resourceGroupVMs)
         $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -wa SilentlyContinue
     }
     
-    # Set OS Disk based on OS type
-    if($OStype -eq 'Windows' -or $OStype -eq '0'){
-       $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -Caching $OSDiskCaching -CreateOption $createOption -Windows
-    }
-    else
+    if($srcVM.storageprofile.osdisk.vhd)
     {
-       $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -Caching $OSDiskCaching -CreateOption $createOption -Linux
+       # Set OS Disk based on OS type
+        if($OStype -eq 'Windows' -or $OStype -eq '0')
+        {
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -Caching $OSDiskCaching -CreateOption $createOption -Windows
+        }
+        else
+        {
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -Caching $OSDiskCaching -CreateOption $createOption -Linux
+        }
+    }
+    elseif($srcVM.storageprofile.osdisk.manageddisk)
+    {
+        $osDiskId = (Get-AzureRmDisk -DiskName $OSDiskName -ResourceGroupName $resourceGroupName).id
+
+        if($OStype -eq 'Windows' -or $OStype -eq '0')
+        {
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Windows
+        }
+        else
+        {
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDisk.Id -Caching $OSDiskCaching -CreateOption $createOption -Linux
+        }
     }
 
-    # add NIC
-    $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $NIC.Id
+    # add NICs
+    foreach($NIC in $newNICs)
+    {
+        $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $NIC.Id
+    }
 
     # add data disk if they were present
     if($srcVM.storageProfile.datadisks)
@@ -1290,46 +1511,43 @@ foreach($srcVM in $resourceGroupVMs)
             $dataDiskLUN = $disk.Lun
             $diskCaching = $disk.Caching
             $DiskSizeGB = $disk.DiskSizeGB
-            $srcDiskURI = $disk.vhd.uri
-            $split = $srcDiskURI.Split('/')
-            # TODO: assumes one level of container.  need to adjust to allow for something like container/myfolder/vhdfolder
-            $diskBlobName = $split[($split.count -1)]
-            $diskContainerName = $split[3]
-            # get the new destination storage account name from our custom object array
-            $diskStorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
-            # refresh the storage context object if -resume
-            if($resume)
-            {
-              $diskStorageAccountName = $diskStorageContext.StorageAccountName
-              $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $diskStorageAccountName).Value[0]
-              $diskStorageContext = New-AzureStorageContext -StorageAccountName $diskStorageAccountName -StorageAccountKey $StorageAccountKey
+            if($srcVM.storageprofile.datadisk.vhd)
+            {    
+                $srcDiskURI = $disk.vhd.uri
+                $split = $srcDiskURI.Split('/')
+                # TODO: assumes one level of container.  need to adjust to allow for something like container/myfolder/vhdfolder
+                $diskBlobName = $split[($split.count -1)]
+                $diskContainerName = $split[3]
+                # get the new destination storage account name from our custom object array
+                $diskStorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+                # refresh the storage context object if -resume
+                if($resume)
+                {
+                $diskStorageAccountName = $diskStorageContext.StorageAccountName
+                $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $diskStorageAccountName).Value[0]
+                $diskStorageContext = New-AzureStorageContext -StorageAccountName $diskStorageAccountName -StorageAccountKey $StorageAccountKey
+                }
+
+                $dataDiskUri = "$($diskStorageContext.BlobEndPoint)$diskContainerName/$diskBlobName"
+                
+                # Verify copy status
+                Get-BlobCopyStatus -Context $diskStorageContext -containerName $diskContainerName -BlobName $diskBlobName
+             
             }
 
-            $dataDiskUri = "$($diskStorageContext.BlobEndPoint)$diskContainerName/$diskBlobName"
-        
-            do
-            { 
-              $drtn = $null
-              write-verbose "Checking VHD blob copy for $diskBlobName" -verbose
-              $drtn = Get-AzureStorageBlob -Context $diskStorageContext -container $diskContainerName -Blob $diskBlobName | Get-AzureStorageBlobCopyState
-              $drtn| select Source, Status, BytesCopied, TotalBytes|fl
-              if($rtn.status  -ne 'Success')
-              {
-               write-warning "VHD blob copy is not complete"
-               $rh = read-host "Press <Enter> to refresh or type EXIT and press <Enter> to quit copy status updates and resume later"
-               if(($rh.ToLower()) -eq 'exit')
-               {
-                 write-output "Run script with -resume switch to continue creating VMs after file copy has completed."
-                 BREAK
-               }
-              }
+            # determine if managed disk are used by checking OSdisk and use apppropiate attach method for the datadisk
+	        if($srcVM.storageprofile.osdisk.vhd)
+            {
+                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -DiskSizeInGB $DiskSizeGB -Lun $dataDiskLUN -VhdUri $dataDiskUri -Caching $diskCaching -CreateOption $CreateOption | out-null
             }
-            while($drtn.status  -ne 'Success')
+            elseif($srcVM.storageprofile.osdisk.manageddisk)
+            {
+                # $mdisk = Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName
+                 # Write-Host ('Disk Provisioning State -> [ ' + ($mdisk.ProvisioningState) + ' ]')
+                $dataDiskId = (Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName).id
+                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -Lun $dataDiskLUN -ManagedDiskId $dataDiskId -Caching $diskCaching -CreateOption $CreateOption | out-null
+            }
             
-            # exit script if user breaks out of above loop   
-            if($rtn.status  -ne 'Success'){EXIT}
-                
-            Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -DiskSizeInGB $DiskSizeGB -Lun $dataDiskLUN -VhdUri $dataDiskUri -Caching $diskCaching -CreateOption $CreateOption | out-null
         }
     }
      
@@ -1348,5 +1566,6 @@ foreach($srcVM in $resourceGroupVMs)
          write-warning "Failed to create Virtual Machine $VMName"
     }
 }
+
 
 

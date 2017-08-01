@@ -1,7 +1,10 @@
 <#
 .SYNOPSIS
     Creates self-signed cert and associated Azure AD Azure Service Principal and Azure AD Application that allows
-     Azure ARM authentication using -servicePrincipal flag 
+     Azure ARM authentication using -servicePrincipal flag.
+     
+     Requires AzureRM module version 4.2.1 or later.
+    
 
 .DESCRIPTION
    Along with creating the service principal and associated application ID, the script outputs a sample login script
@@ -25,7 +28,7 @@
     Original Author:   https://github.com/JeffBow
 
  ------------------------------------------------------------------------
-               Copyright (C) 2016 Microsoft Corporation
+               Copyright (C) 2017 Microsoft Corporation
 
  You have a royalty-free right to use, modify, reproduce and distribute
  this sample script (and/or any modified version) in any way
@@ -34,7 +37,6 @@
  ------------------------------------------------------------------------
 #>
 #Requires -Version 4.0
-#Requires -Module AzureRM.Resources
 
 param(
 
@@ -45,7 +47,12 @@ param(
     [string]$Environment= "AzureCloud"
 )
 
+import-module AzureRM 
 
+if ((Get-Module AzureRM).Version -lt "4.2.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
+   BREAK
+}
 
 
 function Roll-Back 
@@ -77,12 +84,12 @@ function Roll-Back
 write-host "Enter credentials for the 'target' Azure Subscription..." -F Yellow
 $login= Login-AzureRmAccount -EnvironmentName $Environment
 $loginID = $login.context.account.id
-$sub = Get-AzureRmSubscription -TenantID $login.context.Subscription.TenantID
-$SubscriptionId = $sub.SubscriptionId
+$sub = Get-AzureRmSubscription 
+$SubscriptionId = $sub.Id
 
 # check for multiple subs under same account and force user to pick one
 if($sub.count -gt 1) {
-    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).SubscriptionId
+    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId| Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
 }
@@ -97,7 +104,7 @@ if(! $SubscriptionId)
 # Get the tenant id for this subscription
 $TenantID = $sub.TenantId 
 
-write-host "Logged into $($sub.SubscriptionName) with subscriptionID $SubscriptionId as $loginID" -f Green
+write-host "Logged into $($sub.Name) with subscriptionID $SubscriptionId as $loginID" -f Green
 
 
 # Request password

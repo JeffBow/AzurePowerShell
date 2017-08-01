@@ -5,13 +5,13 @@
 
 * **Archive-AzureRMvm.ps1** - Archives or Rehydrates Azure V2 (ARM) Virtual Machines from specified resource group to save VM core allotment
 
-* **Copy-AzureRMresourceGroup.ps1** - Copies resources from one resource group to another in a different Azure Subscription AND Tenant
+* **Copy-AzureRMresourceGroup.ps1** - Copies resources from one resource group to another a different Azure Subscription AND Tenant
 
-* **Clone-AzureRMresourceGroup.ps1** - Clones resources from one resource group to a new resource group (in the same or different location) within the same Azure Subscription and Tenant
+* **Clone-AzureRMresourceGroup.ps1** -Copies resources from one resource group to the same or different location/region in the same Azure Subscription
 
-* **Backup-AzureRMvm.ps1** - Backs up VHDs of each VM in a resource group to a defined container
+* **Backup-AzureRMvm.ps1** - Backs up VHDs blobs of each VM in a resource group to a defined container. Does not support VMs with managed disks because they provide snapshots.
 
-* **Restore-AzureRMvm.ps1** - Restores a VM from a backed up VHD created by the above script. Not recommended in production environments
+* **Restore-AzureRMvm.ps1** - Restores a VM from a backed up VHD created by the above script. Not recommended in production environments.  Does not support VMs with managed disks because they provide snapshots.
 
 * **Start-AzureV2vm.ps1** -  PowerShell workflow that starts all VMs in a resource group at once. Uses -ServicePrincipal flag of Login-AzureRMAccount 
 

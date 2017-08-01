@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Archives or Rehydrates Azure V2 (ARM) Virtual Machines from specified resource group to save VM core allotment  
-
+    Requires AzureRM module version 4.2.1 or later
     
 .DESCRIPTION
    Removes VMs from a subscription leaving the VHDs, NICs and other assets along with a JSON configuration file that can 
@@ -10,7 +10,7 @@
 .EXAMPLE
    .\Archive-AzureRMvm.ps1 -ResourceGroupName 'CONTOSO'
 
-Archives all VMs in the CONTOSO resource group
+Archives all VMs in the CONTOSO resource group.
 
 .EXAMPLE
    .\Archive-AzureRMvm.ps1 -ResourceGroupName 'CONTOSO' -Rehydrate 
@@ -44,11 +44,6 @@ Rehydrates the VMs using the saved configuration and remaining resource group co
  ------------------------------------------------------------------------
 #>
 #Requires -Version 4.0
-#Requires -Module AzureRM.Profile
-#Requires -Module AzureRM.Resources
-#Requires -Module AzureRM.Storage
-#Requires -Module AzureRM.Compute
-#Requires -Module AzureRM.Network
 
 param(
 
@@ -69,9 +64,10 @@ param(
 
 $ProgressPreference = 'SilentlyContinue'
 
-if ((Get-Module AzureRM.profile).Version -lt "2.1.0") 
-{
-   Write-warning "Old Version of Azure Modules  $((Get-Module AzureRM.profile).Version.ToString()) detected.  Minimum of 2.1.0 required. Run Update-AzureRM"
+import-module AzureRM 
+
+if ((Get-Module AzureRM).Version -lt "4.2.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
    BREAK
 }
 
@@ -86,7 +82,7 @@ function Get-StorageObject
     $strgDNS = $split[2]
     $splitDNS = $strgDNS.Split('.')
     $storageAccountName = $splitDNS[0]
-    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $StorageAccountName).Value[0]
+    $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $StorageAccountName).Value[0]
     $StorageContext = New-AzureStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
     
     return $StorageContext
@@ -249,12 +245,12 @@ else
 
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription
-$SubscriptionId = $sub.SubscriptionId
+$SubscriptionId = $sub.Id
 
 # check for multiple subs under same account and force user to pick one
 if($sub.count -gt 1) 
 {
-    $SubscriptionId = (Get-AzureRmSubscription | Select-Object * | Out-GridView -title "Select Target Subscription" -OutputMode Single).SubscriptionId
+    $SubscriptionId = (Get-AzureRmSubscription | Select-Object * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId | Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
 }
@@ -268,7 +264,9 @@ if(! $SubscriptionId)
    break
 }
 
-write-host "Logged into $($sub.SubscriptionName) with subscriptionID $SubscriptionId as $loginID" -f Green
+$SubscriptionName = $sub.Name
+
+write-host "Logged into $SubscriptionName with subscriptionID $SubscriptionId as $loginID" -f Green
 
 # check for valid source resource group
 if(-not ($sourceResourceGroup = Get-AzureRmResourceGroup  -ResourceGroupName $resourceGroupName)) 
@@ -290,7 +288,7 @@ if($Rehydrate)
     { 
         $StorageAccountName = $StorageAccount.StorageAccountName
         write-verbose "Searching for rehydrate files in storage account $StorageAccountName)..." -verbose        
-        $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $StorageAccountName).Value[0]
+        $StorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $StorageAccountName).Value[0]
         $StorageContext = New-AzureStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
 
         foreach($StorageContainer in (Get-AzureStorageContainer -Context $StorageContext) )
@@ -336,7 +334,7 @@ if($Rehydrate)
                                 $rehydrateVMDiag = (get-content "$env:temp\$TempDiagRehydratefileName" -ea Stop) -Join "`n"| ConvertFrom-Json
                                 $wadCfg = $rehydrateVMDiag.wadCfg
                                 $wadStorageAccount = $rehydrateVMDiag.StorageAccount
-                                $wadStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $wadStorageAccount -ea Stop).Value[0]
+                                $wadStorageAccountKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -Name $wadStorageAccount -ea Stop).Value[0]
                                 write-verbose "Applying VM Diagnostic settings to virtual machine $($rehydrateVM.Name)..." -verbose
                                 Set-AzureRmVMDiagnosticsExtension -ResourceGroupName $ResourceGroupName -VMName $($rehydrateVM.Name) -DiagnosticsConfigurationPath "$env:temp\$TempDiagRehydratefileName" -StorageAccountName $wadStorageAccount -StorageAccountKey $wadStorageAccountKey | out-null
                             }
