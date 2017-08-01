@@ -947,19 +947,37 @@ if(! $resume)
     # create new Availability sets
     foreach($srcAVset in $resourceGroupAvSets)
     {
-        $AVName = $srcAVset.name
-        try
+                
+        $avParams = @{
+                "Name" = $srcAVset.name  
+                "ResourceGroupName" = $resourceGroupName  
+                "Location" = $location
+                "sku" = $srcAVset.Sku
+                "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
+                "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
+                "ea" = 'Stop'
+                "wa" = 'SilentlyContinue'
+        }
+        
+        if($srcAVset.Managed)
         {
-        write-verbose "Creating availability set $AVname in resource group $resourceGroupName at location $location" -verbose
-        $NewAvailabilitySet = New-AzureRmAvailabilitySet -Name $AVName -ResourceGroupName $resourceGroupName  -Location $location -ea Stop -wa SilentlyContinue
-        Write-Output "Availability Set $AVname was created"
+            $avParams.Add("Managed", $srcAVset.Managed)
+        }
+
+
+         try
+        {
+            write-verbose "Creating availability set $AVname in resource group $resourceGroupName at location $location" -verbose
+            $NewAvailabilitySet = New-AzureRmAvailabilitySet @avParams 
+            Write-Output "Availability Set $AVname was created"
         }
         catch
         {
-        $_
-        write-warning "Failed to create availability set $AVname"
-        } 
+            $_
+            write-warning "Failed to create availability set $AVname"
+            } 
     }
+
 
 
 
