@@ -1489,7 +1489,7 @@ foreach($srcVM in $resourceGroupVMs)
         }
         else
         {
-            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDisk.Id -Caching $OSDiskCaching -CreateOption $createOption -Linux
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Linux
         }
     }
 
