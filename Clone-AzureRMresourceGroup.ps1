@@ -595,7 +595,13 @@ if(! $resume)
         # add CustomDomainName if present.
         if($Encryption) 
         {
-            $storageParams.Add("EnableEncryptionService", $Encryption)
+            if($Encryption.Services.Blob){$encryptionBlob  = 'Blob'}
+            if($Encryption.Services.File){$encryptionFile  = 'File'}
+            if($encryptionBlob){$EncryptionType = $encryptionBlob}
+            if($encryptionFile){$EncryptionType = $encryptionFile}
+            if($encryptionBlob -and $encryptionFile){$EncryptionType = "'$encryptionBlob, $encryptionFile'"}
+
+            $storageParams.Add("EnableEncryptionService", $EncryptionType)
         }
         
 
