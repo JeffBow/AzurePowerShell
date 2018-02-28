@@ -599,7 +599,7 @@ if(! $resume)
             if($Encryption.Services.File){$encryptionFile  = 'File'}
             if($encryptionBlob){$EncryptionType = $encryptionBlob}
             if($encryptionFile){$EncryptionType = $encryptionFile}
-            if($encryptionBlob -and $encryptionFile){$EncryptionType = "'$encryptionBlob, $encryptionFile'"}
+            if($encryptionBlob -and $encryptionFile){$EncryptionType = "$encryptionBlob,$encryptionFile"}
 
             $storageParams.Add("EnableEncryptionService", $EncryptionType)
         }
