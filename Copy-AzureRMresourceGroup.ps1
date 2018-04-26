@@ -717,7 +717,7 @@ if(! $resume)
             if($encryptionFile){$EncryptionType = $encryptionFile}
             if($encryptionBlob -and $encryptionFile){$EncryptionType = "$encryptionBlob,$encryptionFile"}
 
-            $storageParams.Add("EnableEncryptionService", $Encryption)
+            $storageParams.Add("EnableEncryptionService", $EncryptionType)
         }
         
 
