@@ -128,11 +128,13 @@ function Get-StorageObject
  
     switch ($skuName) 
         { 
-            'StandardLRS'   {$skuName = 'Standard_LRS'} 
+            'StandardLRS'   {$skuName = 'Standard_LRS'}
+            'Standard_LRS'   {$skuName = 'Standard_LRS'}  
             'StandardZRS'   {$skuName = 'Standard_ZRS'} 
             'StandardGRS'   {$skuName = 'Standard_GRS'} 
             'StandardRAGRS'{$skuName = 'Standard_RAGRS'} 
             'PremiumLRS'   {$skuName = 'Premium_LRS'} 
+            'Premium_LRS'   {$skuName = 'Premium_LRS'} 
             default {$skuName = 'Standard_LRS'}
         }
      
