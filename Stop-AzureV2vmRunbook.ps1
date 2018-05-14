@@ -41,7 +41,7 @@ try
     $servicePrincipalConnection = Get-AutomationConnection -Name $automationConnectionName          
 
     # Log into Azure
-    $login = Add-AzureRmAccount `
+    $login = Connect-AzureRmAccount `
         -ServicePrincipal `
         -TenantId $servicePrincipalConnection.TenantId `
         -ApplicationId $servicePrincipalConnection.ApplicationId `
@@ -87,7 +87,7 @@ foreach ($VM in $VMs)
     {
     	$stopRtn = Stop-AzureRMVM -Name $VMName -ResourceGroupName $resourceGroupName -force -ea SilentlyContinue
 
-		if (-not($StopRtn.IsSuccessStatusCode))
+		if (-not($StopRtn))
 		{
 			# The VM failed to stop, so send notice
         	Write-Output ($VMName + " failed to stop")
