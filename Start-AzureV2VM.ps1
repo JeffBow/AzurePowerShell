@@ -5,7 +5,7 @@
     
 .DESCRIPTION
    Uses PowerShell workflow to start all VMs in parallel.  Includes a retry and wait cycle to display when VMs are started.
-   Workflow sessions require Azure authentication into each session so this script uses a splatting of parameters required for Login-AzureRmAccount that
+   Workflow sessions require Azure authentication into each session so this script uses a splatting of parameters required for Connect-AzureRmAccount that
    can be passed to each session.  Recommend using the New-AzureServicePrincipal script to create the required service principal and associated ApplicationId
    and certificate thumbprint required to log into Azure with the -servicePrincipal flag
 
@@ -89,42 +89,48 @@ $loginParams = @{
 
 $ProgressPreference = 'SilentlyContinue'
 
-if ((Get-Module AzureRM.profile).Version -lt "2.1.0") 
-{
-   Write-warning "Old Version of Azure Modules  $((Get-Module AzureRM.profile).Version.ToString()) detected.  Minimum of 2.1.0 required. Run Update-AzureRM"
+import-module AzureRM 
+
+if ((Get-Module AzureRM).Version -lt "5.5.0") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 5.5.0 required. Run Update-Module AzureRM"
    BREAK
 }
 
 function Start-Vm 
 {
     param($vmName, $resourceGroupName)
-       
-       $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $vmName -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
-       if($status -ne 'VM running')
-       { 
-        Write-Output "Starting $vmName..." 
-        $startRtn = Start-AzureRMVM -Name $VMName -ResourceGroupName $ResourceGroupName  -ea SilentlyContinue
-        $count=1
+             
+    Write-Output "Starting $vmName..." 
+    $count=1
 
-         if($startRtn.Status -ne 'Succeeded')
-         {
-           do{
-              Write-Output "Failed to start $VMName. Retrying in 60 seconds..."
-              sleep 60
-              $startRtn = Start-AzureRMVM -Name $VMName -ResourceGroupName $ResourceGroupName -ea SilentlyContinue
-              $count++
-              }
-            while($startRtn.Status -ne 'Succeeded' -and $count -lt 5)
-         
-           }
-           else
-           { 
-               Write-Output "  $vmName started" 
-           }
-           
-           if($startRtn.Status -ne 'Succeeded'){Write-Output "Startup of $VMName FAILED on attempt number $count of 5."}
+    do
+    {
+        $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $vmName -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
+        Write-Output "$vmName current status is $status"
+        if($status -ne 'VM running')
+        {
+            if($count -gt 1)
+            {
+                Write-Output "Failed to start $VMName. Retrying in 60 seconds..."
+                sleep 60
+            }
+
+            $rtn = Start-AzureRMVM -Name $VMName -ResourceGroupName $ResourceGroupName -ea SilentlyContinue 
+            $count++
         }
-}  # end of function
+    }
+    while($status -ne 'VM running' -and $count -lt 5)
+    
+    if($status -eq 'VM running')
+    {
+        Write-Output "$VMName started."
+    }
+    else
+    {
+        Write-Output "Startup of $VMName FAILED on attempt number $count of 5."
+    }
+    
+}  # end of start-vm function
     
 
 Workflow Start-VMs 
@@ -132,7 +138,7 @@ Workflow Start-VMs
 
   foreach -parallel ($vm in $VMs)
     { 
-      $login = Login-AzureRmAccount @loginParams      
+      $login = Connect-AzureRmAccount @loginParams      
       $vmName = $vm.Name
       Start-Vm -VmName $vmName -ResourceGroupName $resourceGroupName 
     }
@@ -144,7 +150,7 @@ Workflow Start-VMs
 try
 {
     # Log into Azure
-    Login-AzureRmAccount @loginParams -ea Stop | out-null
+    Connect-AzureRmAccount @loginParams -ea Stop | out-null
 }
 catch 
 {
@@ -166,12 +172,8 @@ catch
 $vms = Get-AzureRmVM -ResourceGroupName $ResourceGroupName 
 
  #pre action confirmation
- write-output "Starting..."
-foreach ($vm in $VMs) 
-{       
-   $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $vm.Name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
-   "$($vm.Name) - $status"
-}
+ write-output "Starting...$($vms.Name)"
+
 
 # start your DC or other server first
 if($firstServer)

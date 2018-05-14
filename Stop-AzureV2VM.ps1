@@ -5,7 +5,7 @@
     
 .DESCRIPTION
    Uses PowerShell workflow to stop all VMs in parallel. Includes a retry and wait cycle to display when VMs are stopped. PowerShell
-   Workflow sessions require Azure authentication into each session so this script uses a splatting of parameters required for Login-AzureRmAccount that
+   Workflow sessions require Azure authentication into each session so this script uses a splatting of parameters required for Connect-AzureRmAccount that
    can be passed to each session.  Recommend using the New-AzureServicePrincipal script to create the required service principal and associated ApplicationId
    and certificate thumbprint required to log into Azure with the -servicePrincipal flag
 
@@ -73,48 +73,61 @@ param(
 
 $ProgressPreference = 'SilentlyContinue'
 
-if ((Get-Module AzureRM.profile).Version -lt "2.1.0") 
-{
-   Write-warning "Old Version of Azure Modules  $((Get-Module AzureRM.profile).Version.ToString()) detected.  Minimum of 2.1.0 required. Run Update-AzureRM"
+import-module AzureRM 
+
+if ((Get-Module AzureRM).Version -lt "5.5.0") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 5.5.0 required. Run Update-Module AzureRM"
    BREAK
 }
 
 workflow Stop-Vms 
-{ param($VMS, $ResourceGroupName, $loginParams)
+{ param($VMS, $ResourceGroupName, $loginParams, [switch]$Force)
      
 	# Get all Azure VMs in the subscription that are not stopped and deallocated, and shut them down
-    $login = Login-AzureRmAccount @loginParams
+    $login = Connect-AzureRmAccount @loginParams
 
     foreach -parallel ($vm in $VMs)
       {       
-          $null = Login-AzureRmAccount @loginParams
+          $null = Connect-AzureRmAccount @loginParams
           
           $vmName = $vm.Name
-          $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $vmName -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
-
-          if($status -ne 'VM deallocated')
+          $count=0
+          
+          do
           {
-            $stopRtn = Stop-AzureRMVM -Name $VMName -ResourceGroupName $resourceGroupName -force -ea SilentlyContinue
+            $status = ((Get-AzureRmVm -ResourceGroupName $resourceGroupName -Name $vmName -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
+            Write-Output "$vmName current status is $status"
+            if($status -ne 'VM deallocated')
+            {
+                if($count -gt 0)
+                {
+                    Write-Output "Failed to stop $VMName. Retrying in 60 seconds..."
+                    sleep 60
+                }
 
-            $count=1
-            if($stopRtn.Status -ne 'Succeeded')
-              {
-               do{
-                  Write-Output "Failed to stop $VMname. Retrying in 60 seconds..."
-                  sleep 60
-                  $stopRtn = Stop-AzureRMVM -Name $VMname -ResourceGroupName $resourceGroupName -force -ea SilentlyContinue
-                  $count++
-                  }
-                while($stopRtn.Status -ne 'Succeeded' -and $count -lt 5)
-            
-              }
-              else
-              { 
-                Write-Output "  $vmName stopped" 
-              }
+                if($force)
+                {
+                    $rtn = Stop-AzureRMVM -Name $VMName -ResourceGroupName $resourceGroupName -force -ea SilentlyContinue 
+                }
+                else 
+                {
+                    $rtn = Stop-AzureRMVM -Name $VMName -ResourceGroupName $resourceGroupName -ea SilentlyContinue 
+                }
+                    
+                $count++
+            }
+                    
+        }
+        while($status -ne 'VM deallocated' -and $count -lt 5)
               
-            if($stopRtn.Status -ne 'Succeeded'){Write-Output "Shutdown for $VMName FAILED on attempt number $count of 5."}
-          }
+        if($status -eq 'VM deallocated')
+        {
+            Write-Output "$VMName stopped."
+        }
+        else
+        {
+            Write-Output "Shutdown for $VMName FAILED on attempt number $count of 5."
+        }
            
       }
 }  # end of workflow
@@ -134,7 +147,7 @@ $loginParams = @{
 try
 {
     # Log into Azure
-    Login-AzureRmAccount @loginParams -ea Stop | out-null
+    Connect-AzureRmAccount @loginParams -ea Stop | out-null
 }
 catch 
 {
@@ -157,17 +170,10 @@ catch
 $vms = Get-AzureRmVM -ResourceGroupName $ResourceGroupName 
 
  #pre action confirmation
- write-output "Shutting down..."
-foreach ($vm in $VMs)
-{       
-   $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $vm.Name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
-   "$($vm.Name) - $status"
-}
+ write-output "Shutting down...$($vms.Name)"
 
-
-
-# call workflow
- Stop-Vms -VMs $vms -ResourceGroupName $resourceGroupName -loginParams $loginParams
+# call workflow - Remove -Force if you want confirmation for each VM
+ Stop-Vms -VMs $vms -ResourceGroupName $resourceGroupName -loginParams $loginParams -Force
 
 
  #post action confirmation
