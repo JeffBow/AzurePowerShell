@@ -308,11 +308,11 @@ if($OptionalSourceEnvironment -and (Get-AzureRMEnvironment -Name $OptionalSource
 write-host "Enter credentials for the 'source' Azure Subscription..." -f Yellow
 if($OptionalSourceEnvironment)
 {
-   $login= Login-AzureRmAccount -EnvironmentName $OptionalSourceEnvironment
+   $login= Connect-AzureRmAccount -EnvironmentName $OptionalSourceEnvironment
 }
 else
 {
-   $login= Login-AzureRmAccount
+   $login= Connect-AzureRmAccount
 }
 
 $loginID = $login.context.account.id
@@ -510,15 +510,18 @@ if($OptionalTargetEnvironment -and (Get-AzureRMEnvironment -Name $OptionalTarget
    $OptionalTargetEnvironment = (Get-AzureRMEnvironment | Select-Object Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your target subscription" -OutputMode Single).Name
 }
 
+write-host "Disconnecting from the 'source' Azure Subscription..." -f Yellow
+Disconnect-AzureRmAccount -Username $loginID | Out-Null
+
 # get Azure creds for target
 write-host "Enter credentials for the 'target' Azure Subscription..." -f Yellow
 if($OptionalTargetEnvironment)
 {
-   $login= Login-AzureRmAccount -EnvironmentName $OptionalTargetEnvironment
+   $login= Connect-AzureRmAccount -EnvironmentName $OptionalTargetEnvironment
 }
 else
 {
-   $login= Login-AzureRmAccount 
+   $login= Connect-AzureRmAccount 
 }
 
 $loginID = $login.context.account.id
@@ -572,8 +575,8 @@ if(! $resume)
     $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
     if(! $location) 
     {
-        write-warning "$NewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
+        write-warning "$OptionalNewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
+        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers, Location | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
     }
 
 
@@ -959,7 +962,23 @@ if(! $resume)
     {
         $AVname = $srcAVset.name
         
-        $avParams = @{
+        # 'Aligned' Availability Sets are not yet supported in this region
+        if($OptionalTargetEnvironment -eq "AzureUSGovernment")
+        {
+            $avParams = @{
+                "Name" = $AVname 
+                "ResourceGroupName" = $resourceGroupName  
+                "Location" = $location
+                "sku" = 'Classic'
+                "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
+                "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
+                "ea" = 'Stop'
+                "wa" = 'SilentlyContinue'
+            }
+        }
+        else 
+        {
+            $avParams = @{
                 "Name" = $AVname 
                 "ResourceGroupName" = $resourceGroupName  
                 "Location" = $location
@@ -968,13 +987,20 @@ if(! $resume)
                 "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
                 "ea" = 'Stop'
                 "wa" = 'SilentlyContinue'
+            }
         }
+  
         
         # deprecated in newer module versions
         #if($srcAVset.Managed)
         #{
         #    $avParams.Add("Managed", $srcAVset.Managed)
         #}
+
+        if($new)
+        {
+      
+        
 
 
          try
