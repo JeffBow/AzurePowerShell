@@ -90,8 +90,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 import-module AzureRM 
 
-if ((Get-Module AzureRM).Version -lt "4.2.1") {
-   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
+if ((Get-Module AzureRM).Version -lt "6.0.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.0.1 required. Run Update-Module AzureRM"
    BREAK
 }
 
@@ -729,7 +729,7 @@ if(! $resume)
     foreach($md in $resourceGroupManagedDisks)
     { 
         $srcMDname = $md.Name
-        $srcAccountType = $md.AccountType
+        $srcSkuName = $md.Sku.Name
         $srcMDid = $md.id
         # $srcOStype = $md.OsType
 
@@ -744,7 +744,7 @@ if(! $resume)
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcMDname 
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $tempStorageContext 
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $rtn.ICloudBlob.Uri.AbsoluteUri
-            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcAccountType -Value $srcAccountType 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSkuName -Value $srcSkuName 
 
             [array]$VHDstorageObjects += $PSobjVHDstorage
         }
@@ -756,7 +756,7 @@ if(! $resume)
 
             try
 	        {
-        	    $mdiskconfig = New-AzureRmDiskConfig -AccountType $srcAccountType -Location $location  -CreateOption Copy -SourceResourceId $srcMDid
+        	    $mdiskconfig = New-AzureRmDiskConfig -SkuName $srcSkuName -Location $location  -CreateOption Copy -SourceResourceId $srcMDid
         	    $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
 		        write-output "The managed disk $srcMDname was created."
             }
@@ -866,9 +866,10 @@ if(! $resume)
     # create new Availability sets
     foreach($srcAVset in $resourceGroupAvSets)
     {
-                
+        $AVname = $srcAVset.name
+        
         $avParams = @{
-                "Name" = $srcAVset.name  
+                "Name" = $AVname  
                 "ResourceGroupName" = $resourceGroupName  
                 "Location" = $location
                 "sku" = $srcAVset.Sku
@@ -878,10 +879,11 @@ if(! $resume)
                 "wa" = 'SilentlyContinue'
         }
         
-        if($srcAVset.Managed)
-        {
-            $avParams.Add("Managed", $srcAVset.Managed)
-        }
+        # deprecated in newer module versions
+        #if($srcAVset.Managed)
+        #{
+        #    $avParams.Add("Managed", $srcAVset.Managed)
+        #}
 
 
          try
@@ -1381,7 +1383,7 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $newLocation -and $l
         write-verbose "Creating new managed disk $srcMDname in $location" -Verbose
         try
         {
-            $mdiskconfig = New-AzureRmDiskConfig -AccountType $srcAccountType -Location $location  -CreateOption Import -SourceUri $srcMDuri 
+            $mdiskconfig = New-AzureRmDiskConfig -SkuName $srcAccountType -Location $location  -CreateOption Import -SourceUri $srcMDuri 
             $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
             write-output "The managed disk $srcMDname was created."
 

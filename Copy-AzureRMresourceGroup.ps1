@@ -118,8 +118,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 import-module AzureRM 
 
-if ((Get-Module AzureRM).Version -lt "4.2.1") {
-   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 4.2.1 required. Run Update-Module AzureRM"
+if ((Get-Module AzureRM).Version -lt "6.0.1") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.0.1 required. Run Update-Module AzureRM"
    BREAK
 }
 
@@ -443,9 +443,11 @@ foreach($vm in $resourceGroupVMs)
         $PSobjMDstorage = New-Object -TypeName PSObject
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Name -Value $md.Name
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name AccessSAS -Value $AccessSAS
-        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name AccountType -Value $md.AccountType
+        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Sku -Value $md.sku
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Id -Value $md.id  
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name OsType -Value $md.OsType
+        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name DiskSizeGB -Value $md.DiskSizeGB
+        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name EncryptionSettings -Value $md.EncryptionSettings
 
         [array]$sourceMDstorageObjects += $PSobjMDstorage
     }
@@ -840,7 +842,7 @@ if(! $resume)
     foreach($md in $sourceMDstorageObjects)
     { 
         $srcMDname = $md.Name
-        $srcAccountType = $md.AccountType
+        $srcSku = $md.Sku
         $AccessSAS = $md.AccessSAS
         # $srcMDid = $md.id
         # $srcOStype = $md.OsType
@@ -850,7 +852,7 @@ if(! $resume)
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcMDname 
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $tempStorageContext 
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $rtn.ICloudBlob.Uri.AbsoluteUri
-        $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcAccountType -Value $srcAccountType 
+        $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSku -Value $srcSku
 
         [array]$VHDstorageObjects += $PSobjVHDstorage
     }
@@ -955,9 +957,10 @@ if(! $resume)
     # create new Availability sets
     foreach($srcAVset in $resourceGroupAvSets)
     {
-                
+        $AVname = $srcAVset.name
+        
         $avParams = @{
-                "Name" = $srcAVset.name  
+                "Name" = $AVname 
                 "ResourceGroupName" = $resourceGroupName  
                 "Location" = $location
                 "sku" = $srcAVset.Sku
@@ -967,10 +970,11 @@ if(! $resume)
                 "wa" = 'SilentlyContinue'
         }
         
-        if($srcAVset.Managed)
-        {
-            $avParams.Add("Managed", $srcAVset.Managed)
-        }
+        # deprecated in newer module versions
+        #if($srcAVset.Managed)
+        #{
+        #    $avParams.Add("Managed", $srcAVset.Managed)
+        #}
 
 
          try
@@ -1452,7 +1456,7 @@ else # if not resume
 if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $location -ne $srcLocation)
  {
  
-    foreach($mdObj in $VHDstorageObjects|where{$_.srcAccountType -ne 'NULL'})
+    foreach($mdObj in $VHDstorageObjects|where{$_.srcSku -ne 'NULL'})
     {
         # refresh the storage context object if -resume
         if($resume)
@@ -1466,14 +1470,14 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $location -ne $srcLo
         $mdTempContainerName = (Get-AzureStorageContainer -Context $tempStorageContext).Name
         $srcMDuri = $mdObj.srcURI
         $srcMDname = $mdObj.srcName
-        $srcAccountType = $mdObj.srcAccountType
+        $srcSkuName = $mdObj.sku.Name
 
         Get-BlobCopyStatus -Context $tempStorageContext -containerName $mdTempContainerName -BlobName $srcMDname
         
         write-verbose "Creating new managed disk $srcMDname in $location" -Verbose
         try
         {
-            $mdiskconfig = New-AzureRmDiskConfig -AccountType $srcAccountType -Location $location  -CreateOption Import -SourceUri $srcMDuri 
+            $mdiskconfig = New-AzureRmDiskConfig -SkuName $srcSkuName -Location $location  -CreateOption Import -SourceUri $srcMDuri 
             $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
             write-output "The managed disk $srcMDname was created."
         }
