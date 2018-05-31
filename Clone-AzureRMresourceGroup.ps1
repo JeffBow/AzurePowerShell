@@ -284,11 +284,11 @@ if($Environment -and (Get-AzureRMEnvironment -Name $Environment) -eq $null)
 write-host "Enter credentials for your Azure Subscription..." -f Yellow
 if($Environment)
 {
-   $login= Login-AzureRmAccount -EnvironmentName $Environment
+   $login= Connect-AzureRmAccount -EnvironmentName $Environment
 }
 else
 {
-   $login= Login-AzureRmAccount 
+   $login= Connect-AzureRmAccount 
 } 
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription 

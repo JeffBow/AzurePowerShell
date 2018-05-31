@@ -159,7 +159,7 @@ function copy-azureBlob
 
 # get Azure creds 
 write-host "Enter credentials for your Azure Subscription..." -F Yellow
-$login= Login-AzureRmAccount -EnvironmentName $Environment
+$login= Connect-AzureRmAccount -EnvironmentName $Environment
 $loginID = $login.context.account.id
 $sub = Get-AzureRmSubscription 
 $SubscriptionId = $sub.Id
