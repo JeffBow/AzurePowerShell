@@ -112,13 +112,14 @@ param(
 )  
 
 $resourceGroupVmResumePath = "$env:TEMP\$resourcegroupname.resourceGroupVMs.resume.json"
+$resourceGroupVmSizeResumePath = "$env:TEMP\$resourcegroupname.resourceGroupVMsize.resume.json"
 $VHDstorageObjectsResumePath = "$env:TEMP\$resourcegroupname.VHDstorageObjects.resume.json"
 $jsonBackupPath = "$env:TEMP\$resourcegroupname.json"
 $ProgressPreference = 'SilentlyContinue'
 
 import-module AzureRM 
 
-if ((Get-Module AzureRM).Version -lt "6.0.1") {
+if ((Get-Module AzureRM).Version -lt "6.7.0") {
    Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.0.1 required. Run Update-Module AzureRM"
    BREAK
 }
@@ -151,7 +152,7 @@ function Get-StorageObject
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name SrcStorageKind -Value $storageAccount.Kind
     $PSobjSourceStorage | Add-Member -MemberType NoteProperty -Name SrcStorageAccessTier -Value $storageAccount.AccessTier
     # get storage account sku and convert to string that is required for creation
-    $skuName = $storageAccount.sku.Name
+    $skuName = $storageAccount.sku.Name.ToString()
  
     switch ($skuName) 
         { 
@@ -177,7 +178,7 @@ function Get-StorageObject
 function get-availableResources
 { param($resourceType, $location)
 
-    $resource = Get-AzureRmVMUsage -Location $location | where{$_.Name.value -eq $resourceType}
+    $resource = Get-AzureRmVMUsage -Location $location | Where-Object{$_.Name.value -eq $resourceType}
     [int32]$availabe = $resource.limit - $resource.currentvalue
     return $availabe 
 
@@ -301,7 +302,7 @@ if(! $resume){
 if($OptionalSourceEnvironment -and (Get-AzureRMEnvironment -Name $OptionalSourceEnvironment) -eq $null)
 {
    write-warning "The specified -OptionalSourceEnvironment could not be found. Specify one of these valid environments."
-   $OptionalSourceEnvironment = (Get-AzureRMEnvironment | select Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your source subscription" -OutputMode Single).Name
+   $OptionalSourceEnvironment = (Get-AzureRMEnvironment | Select-Object Name, ManagementPortalUrl | Out-GridView -title "Select a valid Azure environment for your source subscription" -OutputMode Single).Name
 }
 
 # get Azure creds for source
@@ -322,7 +323,7 @@ $SubscriptionId = $sub.Id
 # check for multiple subs under same account and force user to pick one
 if($sub.count -gt 1) 
 {
-    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
+    $SubscriptionId = (Get-AzureRmSubscription | Select-Object * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId | Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
 }
@@ -382,7 +383,7 @@ $resourceGroupVMs.datadisknames
 # check to make sure VMs are not running
 write-host "Current status of VMs:" -f DarkGreen
 $resourceGroupVMs | %{
-   $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
+   $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|Where-Object{$_.Code -like 'PowerState*'}).DisplayStatus
    write-output "$($_.name) status is $status" 
    if($status -eq 'VM running'){write-warning "All virtual machines in this resource group are not stopped.  Please stop all VMs and try again"; break}
 }
@@ -443,7 +444,7 @@ foreach($vm in $resourceGroupVMs)
         $PSobjMDstorage = New-Object -TypeName PSObject
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Name -Value $md.Name
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name AccessSAS -Value $AccessSAS
-        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Sku -Value $md.sku
+        $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name SkuName -Value $md.sku.Name.ToString()
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name Id -Value $md.id  
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name OsType -Value $md.OsType
         $PSobjMDstorage | Add-Member -MemberType NoteProperty -Name DiskSizeGB -Value $md.DiskSizeGB
@@ -529,8 +530,9 @@ $sub = Get-AzureRmSubscription
 $SubscriptionId = $sub.Id
 
 # check for multiple subs under same account and force user to pick one
-if($sub.count -gt 1) {
-    $SubscriptionId = (Get-AzureRmSubscription | select * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
+if($sub.count -gt 1) 
+{
+    $SubscriptionId = (Get-AzureRmSubscription | Select-Object * | Out-GridView -title "Select Target Subscription" -OutputMode Single).Id
     Select-AzureRmSubscription -SubscriptionId $SubscriptionId| Out-Null
     $sub = Get-AzureRmSubscription -SubscriptionId $SubscriptionId
 }
@@ -558,7 +560,10 @@ write-host "Logged into $SubscriptionName with subscriptionID $SubscriptionId as
 if(! $resume)
 {
     [bool]$isSameEnv = $true
-    if($OptionalTargetEnvironment -ne $OptionalSourceEnvironment){[bool]$isSameEnv = $false}
+    if($OptionalTargetEnvironment -ne $OptionalSourceEnvironment)
+    {
+        [bool]$isSameEnv = $false
+    }
 
     <###############################
      Verify Location
@@ -572,11 +577,11 @@ if(! $resume)
 
     Write-Output "Verifying specified location: $location ..."
     # Prompt for location if provided location doesn't exist in current environment.
-    $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
+    $location = (Get-AzureRMlocation | Where-Object { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
     if(! $location) 
     {
         write-warning "$OptionalNewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers, Location | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
+        $location = (Get-AzureRMlocation | Where-Object { $_.Providers -eq 'Microsoft.Compute'} | Select-Object DisplayName, Providers, Location | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
     }
 
 
@@ -586,22 +591,33 @@ if(! $resume)
 
     foreach ($vmSize in ($resourceGroupVMs.hardwareprofile.vmsize))
     {
-     $cores = $null
-     $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
- 
-     $totalCoresNeeded = $cores + $totalCoresNeeded
+        $cores = $null
+        $cores = (Get-AzureRmVMSize -Location $location | Where-Object{$_.Name -eq $vmSize}).NumberOfCores
+        $totalCoresNeeded = $cores + $totalCoresNeeded
     }
 
     
     $TotalAvailabeVMs = Get-availableResources -ResourceType 'virtualMachines' -Location $location
-    if($resourceGroupVMs.count -gt $TotalAvailabeVMs){Write-Warning "Insufficent available VMs in location $location. Script halted."; break}
+    if($resourceGroupVMs.count -gt $TotalAvailabeVMs)
+    {
+        Write-Warning "Insufficent available VMs in location $location. Script halted."
+        break
+    }
 
     $TotalAvailabeCores = Get-availableResources -ResourceType 'cores' -Location $location
-    if($totalCoresNeeded -gt $TotalAvailabeCores){Write-Warning "Insufficent available cores in location $location. Script halted."; break}
+    if($totalCoresNeeded -gt $TotalAvailabeCores)
+    {
+        Write-Warning "Insufficent available cores in location $location. Script halted."
+        break
+    }
     
 
     $TotalAvailabeAVs = Get-availableResources -ResourceType 'availabilitySets' -Location $location
-    if($resourceGroupAvSets.count -gt $TotalAvailabeAVs){Write-Warning "Insufficent Availability Sets in location $location. Script halted."; break}
+    if($resourceGroupAvSets.count -gt $TotalAvailabeAVs)
+    {
+        Write-Warning "Insufficent Availability Sets in location $location. Script halted."
+        break
+    }
     
 
 
@@ -644,12 +660,12 @@ if(! $resume)
 
 
 
-<###############################
+  <###############################
 
- Create new destination storage accounts
- and copy blobs
+   Create new destination storage accounts
+   and copy blobs
  
- ################################>
+   ################################>
 
 
     # initialize array to store new destination storage account names relative to srcURI
@@ -658,16 +674,16 @@ if(! $resume)
     # get all the unique source storage accounts from custom psobject
     $srcStorageAccountNames = $sourceStorageObjects | Select-Object -Property srcStorageAccount -Unique
     
-
     $VHDsrcStorageAccounts = $sourceVHDstorageObjects| Select-Object -Property srcStorageAccount -Unique
     
     # add the VHD storage accounts to $sourceStorageObjects if they're not there already
     foreach($VHDsrcStorageAccountObj in $VHDsrcStorageAccounts)
     {
         $VHDsrcStorageAccountName = $VHDsrcStorageAccountObj.srcStorageAccount
+        
         if($srcStorageAccountNames.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
         {
-            [array]$sourceStorageObjects += $sourceVHDstorageObjects|where{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
+            [array]$sourceStorageObjects += $sourceVHDstorageObjects|Where-Object{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
         }
     }
 
@@ -680,7 +696,15 @@ if(! $resume)
         if($isSameEnv)
         {
             # create unique storage account name from old account name and guid
-            if($srcStorageAccount.Length -gt 16){$first16 = $srcStorageAccount.Substring(0,16)}else{$first16 = $srcStorageAccount}
+            if($srcStorageAccount.Length -gt 16)
+            {
+                $first16 = $srcStorageAccount.Substring(0,16)
+            }
+            else
+            {
+                $first16 = $srcStorageAccount
+            }
+
             [string] $guid = (New-Guid).Guid
             [string] $DeststorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
         }
@@ -688,12 +712,13 @@ if(! $resume)
         {
             $DeststorageAccountName = $srcStorageAccount
         }
+
         # select sku and other attributes
-        $skuName = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property srcSkuName -Unique).srcSkuName
-        $Encryption = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageEncryption -Unique).SrcStorageEncryption
-        $CustomDomain = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageCustomDomain -Unique).SrcStorageCustomDomain
-        $kind = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageKind -Unique).SrcStorageKind
-        $AccessTier = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageAccessTier -Unique).SrcStorageAccessTier
+        $skuName = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property srcSkuName -Unique).srcSkuName
+        $Encryption = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageEncryption -Unique).SrcStorageEncryption
+        $CustomDomain = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageCustomDomain -Unique).SrcStorageCustomDomain
+        $kind = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageKind -Unique).SrcStorageKind
+        $AccessTier = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageAccessTier -Unique).SrcStorageAccessTier
         
         $storageParams = @{
         "ResourceGroupName" = $resourceGroupName 
@@ -723,8 +748,9 @@ if(! $resume)
             if($encryptionBlob){$EncryptionType = $encryptionBlob}
             if($encryptionFile){$EncryptionType = $encryptionFile}
             if($encryptionBlob -and $encryptionFile){$EncryptionType = "$encryptionBlob,$encryptionFile"}
-
-            $storageParams.Add("EnableEncryptionService", $EncryptionType)
+           # remarked for newer modules, prior to 6.7, this was required
+           
+           #  $storageParams.Add("EnableEncryptionService", $EncryptionType)
         }
         
 
@@ -763,7 +789,7 @@ if(! $resume)
 
 
         # start blob copy for VHDs attached to VMs        
-        foreach($obj in $sourceVHDstorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+        foreach($obj in $sourceVHDstorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount})
         { 
             $srcURI = $obj.srcURI
 
@@ -782,9 +808,9 @@ if(! $resume)
         # start copy for remaining blobs           
         if($srcStorageAccountNames)
         {
-            foreach($obj in $sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+            foreach($obj in $sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount})
             {
-            copy-azureBlob -srcUri $obj.srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext 
+                copy-azureBlob -srcUri $obj.srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext 
             }
         }
 
@@ -794,11 +820,18 @@ if(! $resume)
     # create temporary blob storage account to stage managed disks that will be copied 
     if($resourceGroupManagedDisks)
     {
-        if($resourceGroupName.Length -gt 16){$first16 = $resourceGroupName.Substring(0,16)}else{$first16 = $resourceGroupName }
+        if($resourceGroupName.Length -gt 16)
+        {
+            $first16 = $resourceGroupName.Substring(0,16)
+        }
+        else
+        {
+            $first16 = $resourceGroupName 
+        }
+        
         [string] $guid = (New-Guid).Guid
         [string] $tempStorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
 
-        
         $storageParams = @{
         "ResourceGroupName" = $resourceGroupName 
         "Name" = $tempstorageAccountName 
@@ -845,7 +878,7 @@ if(! $resume)
     foreach($md in $sourceMDstorageObjects)
     { 
         $srcMDname = $md.Name
-        $srcSku = $md.Sku
+        $srcSkuName = $md.SkuName
         $AccessSAS = $md.AccessSAS
         # $srcMDid = $md.id
         # $srcOStype = $md.OsType
@@ -855,7 +888,7 @@ if(! $resume)
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcMDname 
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $tempStorageContext 
         $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $rtn.ICloudBlob.Uri.AbsoluteUri
-        $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSku -Value $srcSku
+        $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSkuName -Value $srcSkuName
 
         [array]$VHDstorageObjects += $PSobjVHDstorage
     }
@@ -933,8 +966,8 @@ if(! $resume)
         }
 
                        
-         foreach($destSub in $destSubnets) 
-         {         
+        foreach($destSub in $destSubnets) 
+        {         
             if($destSub.Subnets.NetworkSecurityGroup)
             {   
                 try
@@ -950,7 +983,7 @@ if(! $resume)
                     $_
                     write-warning "Failed to add Network Security Group $srcNSGname to $($destSub.Name)"
                 }
-             }
+            }
           
         }
 
@@ -962,48 +995,19 @@ if(! $resume)
     {
         $AVname = $srcAVset.name
         
-        # 'Aligned' Availability Sets are not yet supported in this region
-        if($OptionalTargetEnvironment -eq "AzureUSGovernment")
-        {
-            $avParams = @{
-                "Name" = $AVname 
-                "ResourceGroupName" = $resourceGroupName  
-                "Location" = $location
-                "sku" = 'Classic'
-                "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
-                "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
-                "ea" = 'Stop'
-                "wa" = 'SilentlyContinue'
-            }
+        $avParams = @{
+            "Name" = $AVname 
+            "ResourceGroupName" = $resourceGroupName  
+            "Location" = $location
+            "sku" = $srcAVset.Sku
+            "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
+            "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
+            "ea" = 'Stop'
+            "wa" = 'SilentlyContinue'
         }
-        else 
-        {
-            $avParams = @{
-                "Name" = $AVname 
-                "ResourceGroupName" = $resourceGroupName  
-                "Location" = $location
-                "sku" = $srcAVset.Sku
-                "PlatformFaultDomainCount" = $srcAVset.PlatformFaultDomainCount
-                "PlatformUpdateDomainCount" = $srcAVset.PlatformUpdateDomainCount
-                "ea" = 'Stop'
-                "wa" = 'SilentlyContinue'
-            }
-        }
-  
         
-        # deprecated in newer module versions
-        #if($srcAVset.Managed)
-        #{
-        #    $avParams.Add("Managed", $srcAVset.Managed)
-        #}
-
-        if($new)
-        {
-      
-        
-
-
-         try
+ 
+        try
         {
             write-verbose "Creating availability set $AVname in resource group $resourceGroupName at location $location" -verbose
             $NewAvailabilitySet = New-AzureRmAvailabilitySet @avParams 
@@ -1013,11 +1017,9 @@ if(! $resume)
         {
             $_
             write-warning "Failed to create availability set $AVname"
-            } 
+        } 
+    
     }
-
-
-
 
 
     # create new PIPs
@@ -1149,7 +1151,7 @@ if(! $resume)
                 foreach($InboundNatRuleID in $LBipConfig.InboundNatRules.ID) 
                 {
                     $newNatRuleConfig = $null
-                    $InboundNatRule = $LBInboundNatRules | where{$_.ID -eq $InboundNatRuleID}
+                    $InboundNatRule = $LBInboundNatRules | Where-Object{$_.ID -eq $InboundNatRuleID}
                     
                     $inboundNatRuleParams = @{
                         "Name" = $InboundNatRule.name
@@ -1421,6 +1423,21 @@ if(! $resume)
 
     } # end of foreach nic
 
+
+    # for some reason vmSizes do not convert to json with the rest of the vm data so this step is required
+    [array]$sourceVmSizeObjects = $()
+
+    foreach($vm in $resourceGroupVMs)
+    { 
+
+        $PSobjVmSize = New-Object -TypeName PSObject
+        $PSobjVmSize | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name
+        $PSobjVmSize  | Add-Member -MemberType NoteProperty -Name VmSize -Value $vm.HardwareProfile.VmSize.ToString()
+
+        [array]$sourceVMSizeObjects += $PSobjVmSize
+    }
+
+    $sourceVMSizeObjects | ConvertTo-Json -depth 10 | Out-File $resourceGroupVMSizeresumePath
     $resourceGroupVMs | ConvertTo-Json -depth 10 | Out-File $resourceGroupVMresumePath
     $VHDstorageObjects | ConvertTo-Json | Out-File $VHDstorageObjectsResumePath
 
@@ -1442,7 +1459,6 @@ if(! $resume)
         }
 
     }
-
 } 
 else # if not resume
 {
@@ -1460,6 +1476,7 @@ else # if not resume
     try
     {
         $resourceGroupVMs = (get-content $resourceGroupVMresumePath -ea Stop) -Join "`n"| ConvertFrom-Json 
+        $resourceGroupVMSizes = (get-content $resourceGroupVMSizeresumePath -ea Stop) -Join "`n"| ConvertFrom-Json 
     } 
     catch
     {
@@ -1480,9 +1497,9 @@ else # if not resume
 
 #create managed disk from temp blob copy location after blob copy has been confirmed
 if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $location -ne $srcLocation)
- {
+{
  
-    foreach($mdObj in $VHDstorageObjects|where{$_.srcSku -ne 'NULL'})
+    foreach($mdObj in $VHDstorageObjects|Where-Object{$_.srcSkuName -ne 'NULL'})
     {
         # refresh the storage context object if -resume
         if($resume)
@@ -1496,7 +1513,7 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $location -ne $srcLo
         $mdTempContainerName = (Get-AzureStorageContainer -Context $tempStorageContext).Name
         $srcMDuri = $mdObj.srcURI
         $srcMDname = $mdObj.srcName
-        $srcSkuName = $mdObj.sku.Name
+        $srcSkuName = $mdObj.srcSkuName
 
         Get-BlobCopyStatus -Context $tempStorageContext -containerName $mdTempContainerName -BlobName $srcMDname
         
@@ -1516,9 +1533,9 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $location -ne $srcLo
     }
 
     #cleanup
-        write-verbose "All managed disks have been created. Removing temporary storage account $tempStorageAccountName" -Verbose
-        Remove-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $tempStorageAccountName -Force | out-null
-        write-output "The storage account $tempStorageAccountName was removed" 
+    write-verbose "All managed disks have been created. Removing temporary storage account $tempStorageAccountName" -Verbose
+    Remove-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $tempStorageAccountName -Force | out-null
+    Write-output "The storage account $tempStorageAccountName was removed" 
   
 }
 
@@ -1534,12 +1551,19 @@ foreach($srcVM in $resourceGroupVMs)
 {
     # get source VM attributes
     $VMName = $srcVM.Name
-    $VMSize = $srcVM.HardwareProfile.VMSize
     $OSDiskName = $srcVM.StorageProfile.OsDisk.Name
     $OSType = $srcVM.storageprofile.osdisk.OsType
     $OSDiskCaching = $srcVM.StorageProfile.OsDisk.Caching
     $CreateOption = "Attach"
-    
+    if($resume)
+    {  
+        $VMSize = ($resourceGroupVMSizes | Where-Object {$_.VMname -eq $VMName}).VmSize
+    }
+    else 
+    {
+        $VMSize = $srcVM.HardwareProfile.VMSize
+    }
+
     if($srcVM.AvailabilitySetReference)
     {
         $avSetRef = ($srcVM.AvailabilitySetReference.id).Split('/')
@@ -1553,7 +1577,7 @@ foreach($srcVM in $resourceGroupVMs)
     if($vmSize  -and (Get-AzureRmVMSize -Location $Location).name -notcontains $vmSize) 
     {
       write-warning "$savedVMSize is an invalid Azure Virtual Machine Size for this location in this environment.  Please select a valid VM Size and click OK"
-      $vmSize = (Get-AzureRmVMSize -Location $Location | Select Name, NumberOfCores, MemoryInMB, MaxDataDiskCount | Out-GridView -Title "Select Azure VM Size" -OutputMode Single).Name
+      $vmSize = (Get-AzureRmVMSize -Location $Location | Select-Object Name, NumberOfCores, MemoryInMB, MaxDataDiskCount | Out-GridView -Title "Select Azure VM Size" -OutputMode Single).Name
     }
    
    
@@ -1567,7 +1591,7 @@ foreach($srcVM in $resourceGroupVMs)
         $OSblobName = $OSsplit[($OSsplit.count -1)]
         $OScontainerName = $OSsplit[3]
         # get the new destination storage account name from our custom object array
-        $OSstorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+        $OSstorageContext = ($VHDstorageObjects| Where-Object{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
         # refresh the storage context object if -resume
         if($resume)
         {
@@ -1600,7 +1624,7 @@ foreach($srcVM in $resourceGroupVMs)
     }
     else
     {
-        $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -wa SilentlyContinue
+        $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -wa SilentlyContinue 
     }
     
     if($srcVM.storageprofile.osdisk.vhd)
@@ -1617,15 +1641,17 @@ foreach($srcVM in $resourceGroupVMs)
     }
     elseif($srcVM.storageprofile.osdisk.manageddisk)
     {
-        $osDiskId = (Get-AzureRmDisk -DiskName $OSDiskName -ResourceGroupName $resourceGroupName).id
+        $osMDisk = Get-AzureRmDisk -DiskName $OSDiskName -ResourceGroupName $resourceGroupName
+        $osDiskId = $osMDisk.id
+        $osDiskSkuName= $osMDisk.Sku.Name
 
         if($OStype -eq 'Windows' -or $OStype -eq '0')
         {
-            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Windows
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -StorageAccountType $osDiskSkuName -Caching $OSDiskCaching -CreateOption $createOption -Windows
         }
         else
         {
-            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Linux
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -StorageAccountType $osDiskSkuName -Caching $OSDiskCaching -CreateOption $createOption -Linux
         }
     }
 
@@ -1649,7 +1675,7 @@ foreach($srcVM in $resourceGroupVMs)
             $diskCaching = $disk.Caching
             $DiskSizeGB = $disk.DiskSizeGB
             
-            if($srcVM.storageprofile.datadisk.vhd)
+            if($disk.vhd)
             { 
                 $srcDiskURI = $disk.vhd.uri
                 $split = $srcDiskURI.Split('/')
@@ -1657,7 +1683,7 @@ foreach($srcVM in $resourceGroupVMs)
                 $diskBlobName = $split[($split.count -1)]
                 $diskContainerName = $split[3]
                 # get the new destination storage account name from our custom object array
-                $diskStorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+                $diskStorageContext = ($VHDstorageObjects| Where-Object{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
                 # refresh the storage context object if -resume
                 if($resume)
                 {
@@ -1673,17 +1699,19 @@ foreach($srcVM in $resourceGroupVMs)
              
             }
                 
-            # determine if managed disk are used by checking OSdisk and use apppropiate attach method for the datadisk
-	        if($srcVM.storageprofile.osdisk.vhd)
+            # determine if managed disk are used and use apppropiate attach method 
+	        if($disk.vhd)
             {
                 Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -DiskSizeInGB $DiskSizeGB -Lun $dataDiskLUN -VhdUri $dataDiskUri -Caching $diskCaching -CreateOption $CreateOption | out-null
             }
-            elseif($srcVM.storageprofile.osdisk.manageddisk)
+            elseif($disk.manageddisk)
             {
-                # $mdisk = Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName
-                 # Write-Host ('Disk Provisioning State -> [ ' + ($mdisk.ProvisioningState) + ' ]')
-                $dataDiskId = (Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName).id
-                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -Lun $dataDiskLUN -ManagedDiskId $dataDiskId -Caching $diskCaching -CreateOption $CreateOption | out-null
+                $mdDataDisk = Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName
+                 # Write-Host ('Disk Provisioning State -> [ ' + ($mdDataDisk.ProvisioningState) + ' ]')
+                 $dataDiskId = $mdDataDisk.id
+                 $dataDiskSku = $mdDataDisk.sku.Name
+
+                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -Lun $dataDiskLUN -ManagedDiskId $dataDiskId -StorageAccountType $dataDiskSku -Caching $diskCaching -CreateOption $CreateOption | out-null
             }        
         }
     }

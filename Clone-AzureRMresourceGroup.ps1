@@ -84,6 +84,7 @@ param(
 )
 
 $resourceGroupVmResumePath = "$env:TEMP\$resourcegroupname.resourceGroupVMs.resume.json"
+$resourceGroupVmSizeResumePath = "$env:TEMP\$resourcegroupname.resourceGroupVMsize.resume.json"
 $VHDstorageObjectsResumePath = "$env:TEMP\$resourcegroupname.VHDstorageObjects.resume.json"
 $jsonBackupPath = "$env:TEMP\$resourcegroupname.json"
 $ProgressPreference = 'SilentlyContinue'
@@ -152,7 +153,7 @@ function Get-StorageObject
 function Get-AvailableResources
 { param($resourceType, $location)
 
-    $resource = Get-AzureRmVMUsage -Location $location | where{$_.Name.value -eq $resourceType}
+    $resource = Get-AzureRmVMUsage -Location $location | Where-Object{$_.Name.value -eq $resourceType}
     [int32]$availabe = $resource.limit - $resource.currentvalue
     return $availabe 
 
@@ -357,7 +358,7 @@ if(! $resume)
     # check to make sure VMs are not running
     write-host "Current status of VMs:" -f DarkGreen
     $resourceGroupVMs | %{
-        $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|where{$_.Code -like 'PowerState*'}).DisplayStatus
+        $status = ((get-azurermvm -ResourceGroupName $resourceGroupName -Name $_.name -status).Statuses|Where-Object{$_.Code -like 'PowerState*'}).DisplayStatus
         write-output "$($_.name) status is $status" 
         if($status -eq 'VM running')
         {
@@ -461,11 +462,11 @@ if(! $resume)
     
         Write-Output "Verifying specified location: $location ..."
         # Prompt for location if provided location doesn't exist in current environment.
-        $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
+        $location = (Get-AzureRMlocation | Where-Object { $_.Providers -eq 'Microsoft.Compute' -and ( $_.DisplayName -like $location -or $_.location -like $location)}).location
         if(! $location) 
         {
             write-warning "$NewLocation is an invalid Azure Resource Group location for this environment.  Please select a valid location and click OK"
-            $location = (Get-AzureRMlocation | where { $_.Providers -eq 'Microsoft.Compute'} | Select DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
+            $location = (Get-AzureRMlocation | Where-Object { $_.Providers -eq 'Microsoft.Compute'} | Select-Object DisplayName, Providers | Out-GridView -Title "Select Azure Resource Group Location" -OutputMode Single).location
         }
     }
 
@@ -478,7 +479,7 @@ if(! $resume)
     foreach ($vmSize in ($resourceGroupVMs.hardwareprofile.vmsize))
     {
         $cores = $null
-        $cores = (Get-AzureRmVMSize -Location $location | where{$_.Name -eq $vmSize}).NumberOfCores
+        $cores = (Get-AzureRmVMSize -Location $location | Where-Object{$_.Name -eq $vmSize}).NumberOfCores
     
         $totalCoresNeeded = $cores + $totalCoresNeeded
     }
@@ -552,7 +553,7 @@ if(! $resume)
         $VHDsrcStorageAccountName = $VHDsrcStorageAccountObj.srcStorageAccount
         if($srcStorageAccountNames.srcStorageAccount -notcontains $VHDsrcStorageAccountName )
         {
-            [array]$sourceStorageObjects += $sourceVHDstorageObjects|where{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
+            [array]$sourceStorageObjects += $sourceVHDstorageObjects|Where-Object{$_.srcStorageAccount -eq $VHDsrcStorageAccountName}
         }
     }
 
@@ -568,11 +569,11 @@ if(! $resume)
         [string] $DeststorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
 
         # select sku and other attributes
-        $skuName = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property srcSkuName -Unique).srcSkuName
-        $Encryption = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageEncryption -Unique).SrcStorageEncryption
-        $CustomDomain = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageCustomDomain -Unique).SrcStorageCustomDomain
-        $kind = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageKind -Unique).SrcStorageKind
-        $AccessTier = ($sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageAccessTier -Unique).SrcStorageAccessTier
+        $skuName = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property srcSkuName -Unique).srcSkuName
+        $Encryption = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageEncryption -Unique).SrcStorageEncryption
+        $CustomDomain = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageCustomDomain -Unique).SrcStorageCustomDomain
+        $kind = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageKind -Unique).SrcStorageKind
+        $AccessTier = ($sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount} | Select-Object -Property SrcStorageAccessTier -Unique).SrcStorageAccessTier
         
         $storageParams = @{
         "ResourceGroupName" = $resourceGroupName 
@@ -602,8 +603,9 @@ if(! $resume)
             if($encryptionBlob){$EncryptionType = $encryptionBlob}
             if($encryptionFile){$EncryptionType = $encryptionFile}
             if($encryptionBlob -and $encryptionFile){$EncryptionType = "$encryptionBlob,$encryptionFile"}
-
-            $storageParams.Add("EnableEncryptionService", $EncryptionType)
+           
+            # Remarked for newer modules.  This was required prior to AzureRM.Storage 5.0.2
+           # $storageParams.Add("EnableEncryptionService", $EncryptionType)
         }
         
 
@@ -642,7 +644,7 @@ if(! $resume)
 
 
         # start blob copy for VHDs attached to VMs        
-        foreach($obj in $sourceVHDstorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+        foreach($obj in $sourceVHDstorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount})
         { 
             $srcURI = $obj.srcURI
 
@@ -653,7 +655,7 @@ if(! $resume)
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $obj.srcName
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $DestStorageContext  
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $srcURI
-            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcAccountType -Value 'NULL' 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSkuName -Value 'NULL' 
 
             [array]$VHDstorageObjects += $PSobjVHDstorage
         }
@@ -663,7 +665,7 @@ if(! $resume)
         # start copy for remaining blobs           
         if($srcStorageAccountNames)
         {
-            foreach($obj in $sourceStorageObjects | where{$_.srcStorageAccount -eq $srcStorageAccount})
+            foreach($obj in $sourceStorageObjects | Where-Object{$_.srcStorageAccount -eq $srcStorageAccount})
             {
                 copy-azureBlob -srcUri $obj.srcURI -srcContext $obj.SrcStorageContext -destContext $DestStorageContext 
             }
@@ -729,7 +731,7 @@ if(! $resume)
     foreach($md in $resourceGroupManagedDisks)
     { 
         $srcMDname = $md.Name
-        $srcSkuName = $md.Sku.Name
+        $srcSkuName = $md.Sku.Name.ToString()
         $srcMDid = $md.id
         # $srcOStype = $md.OsType
 
@@ -744,7 +746,7 @@ if(! $resume)
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcName -Value $srcMDname 
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name destStorageContext -Value $tempStorageContext 
             $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcURI -Value $rtn.ICloudBlob.Uri.AbsoluteUri
-            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSkuName -Value $srcSkuName 
+            $PSobjVHDstorage | Add-Member -MemberType NoteProperty -Name srcSkuName -Value $srcSkuName
 
             [array]$VHDstorageObjects += $PSobjVHDstorage
         }
@@ -1030,7 +1032,7 @@ if(! $resume)
                 foreach($InboundNatRuleID in $LBipConfig.InboundNatRules.ID) 
                 {
                     $newNatRuleConfig = $null
-                    $InboundNatRule = $LBInboundNatRules | where{$_.ID -eq $InboundNatRuleID}
+                    $InboundNatRule = $LBInboundNatRules | Where-Object{$_.ID -eq $InboundNatRuleID}
                     
                     $inboundNatRuleParams = @{
                         "Name" = $InboundNatRule.name
@@ -1300,6 +1302,20 @@ if(! $resume)
 
     } # end of foreach nic
 
+    # for some reason vmSizes do not convert to json with the rest of the vm data so this step is required
+    [array]$sourceVmSizeObjects = $()
+
+    foreach($vm in $resourceGroupVMs)
+    { 
+
+        $PSobjVmSize = New-Object -TypeName PSObject
+        $PSobjVmSize | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name
+        $PSobjVmSize  | Add-Member -MemberType NoteProperty -Name VmSize -Value $vm.HardwareProfile.VmSize.ToString()
+
+        [array]$sourceVMSizeObjects += $PSobjVmSize
+    }
+
+    $sourceVMSizeObjects | ConvertTo-Json -depth 10 | Out-File $resourceGroupVMSizeresumePath
     $resourceGroupVMs | ConvertTo-Json -depth 10 | Out-File $resourceGroupVMresumePath
     
     # monitor file copy - do not proceed with VM creation until it is complete.  Allows for user to break out and use -resume switch 
@@ -1340,6 +1356,7 @@ else # if  resume
     try
     {
         $resourceGroupVMs = (get-content $resourceGroupVMresumePath -ea Stop) -Join "`n"| ConvertFrom-Json 
+        $resourceGroupVMSizes = (get-content $resourceGroupVMSizeresumePath -ea Stop) -Join "`n"| ConvertFrom-Json 
     } 
     catch
     {
@@ -1356,7 +1373,7 @@ else # if  resume
 if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $newLocation -and $location -ne $srcLocation)
  {
  
-    foreach($mdObj in $VHDstorageObjects|where{$_.srcAccountType -ne 'NULL'})
+    foreach($mdObj in $VHDstorageObjects|Where-Object{$_.srcSkuName -ne 'NULL'})
     {
         # refresh the storage context object if -resume
         if($resume)
@@ -1370,7 +1387,7 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $newLocation -and $l
         $mdTempContainerName = (Get-AzureStorageContainer -Context $tempStorageContext).Name
         $srcMDuri = $mdObj.srcURI
         $srcMDname = $mdObj.srcName
-        $srcAccountType = $mdObj.srcAccountType
+        $srcSkuName = $mdObj.srcSkuName
 
 
         
@@ -1378,12 +1395,12 @@ if($resourceGroupVMs.storageprofile.osdisk.manageddisk -and $newLocation -and $l
         Get-BlobCopyStatus -Context $tempStorageContext -containerName $mdTempContainerName -BlobName $srcMDname
         
         #remove the SAS access on the original
-        Get-AzureRmDisk | where{$_.Name -eq $srcMDname} | Revoke-AzureRmDiskAccess | Out-Null
+        Get-AzureRmDisk | Where-Object{$_.Name -eq $srcMDname} | Revoke-AzureRmDiskAccess | Out-Null
 
         write-verbose "Creating new managed disk $srcMDname in $location" -Verbose
         try
         {
-            $mdiskconfig = New-AzureRmDiskConfig -SkuName $srcAccountType -Location $location  -CreateOption Import -SourceUri $srcMDuri 
+            $mdiskconfig = New-AzureRmDiskConfig -SkuName $srcSkuName -Location $location  -CreateOption Import -SourceUri $srcMDuri 
             $newMDdisk = New-AzureRmDisk -ResourceGroupName $resourceGroupName -Disk $mdiskconfig -DiskName $srcMDname 
             write-output "The managed disk $srcMDname was created."
 
@@ -1417,11 +1434,18 @@ foreach($srcVM in $resourceGroupVMs)
 {
     # get source VM attributes
     $VMName = $srcVM.Name
-    $VMSize = $srcVM.HardwareProfile.VMSize
     $OSDiskName = $srcVM.StorageProfile.OsDisk.Name
     $OSType = $srcVM.storageprofile.osdisk.OsType
     $OSDiskCaching = $srcVM.StorageProfile.OsDisk.Caching
     $CreateOption = "Attach"
+    if($resume)
+    {  
+        $VMSize = ($resourceGroupVMSizes | Where-Object {$_.VMname -eq $VMName}).VmSize
+    }
+    else 
+    {
+        $VMSize = $srcVM.HardwareProfile.VMSize
+    }
 
     if($srcVM.AvailabilitySetReference)
     {
@@ -1439,7 +1463,7 @@ foreach($srcVM in $resourceGroupVMs)
         $OSblobName = $OSsplit[($OSsplit.count -1)]
         $OScontainerName = $OSsplit[3]
         # get the new destination storage account name from our custom object array
-        $OSstorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+        $OSstorageContext = ($VHDstorageObjects| Where-Object{$_.srcURI -eq $OSsrcURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
         
         # refresh the storage context object if -resume
         if($resume)
@@ -1491,15 +1515,17 @@ foreach($srcVM in $resourceGroupVMs)
     }
     elseif($srcVM.storageprofile.osdisk.manageddisk)
     {
-        $osDiskId = (Get-AzureRmDisk -DiskName $OSDiskName -ResourceGroupName $resourceGroupName).id
+        $osMDisk = Get-AzureRmDisk -DiskName $OSDiskName -ResourceGroupName $resourceGroupName
+        $osDiskId = $osMDisk.id
+        $osDiskSkuName= $osMDisk.Sku.Name
 
         if($OStype -eq 'Windows' -or $OStype -eq '0')
         {
-            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Windows
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -StorageAccountType $osDiskSkuName -Caching $OSDiskCaching -CreateOption $createOption -Windows 
         }
         else
         {
-            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -Caching $OSDiskCaching -CreateOption $createOption -Linux
+            $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -ManagedDiskId $osDiskId -StorageAccountType $osDiskSkuName -Caching $OSDiskCaching -CreateOption $createOption -Linux
         }
     }
 
@@ -1521,7 +1547,7 @@ foreach($srcVM in $resourceGroupVMs)
             $dataDiskLUN = $disk.Lun
             $diskCaching = $disk.Caching
             $DiskSizeGB = $disk.DiskSizeGB
-            if($srcVM.storageprofile.datadisk.vhd)
+            if($disk.vhd)
             {    
                 $srcDiskURI = $disk.vhd.uri
                 $split = $srcDiskURI.Split('/')
@@ -1529,7 +1555,7 @@ foreach($srcVM in $resourceGroupVMs)
                 $diskBlobName = $split[($split.count -1)]
                 $diskContainerName = $split[3]
                 # get the new destination storage account name from our custom object array
-                $diskStorageContext = ($VHDstorageObjects| where{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
+                $diskStorageContext = ($VHDstorageObjects| Where-Object{$_.srcURI -eq $srcDiskURI} | Select-Object -Property destStorageContext -Unique).destStorageContext
                 # refresh the storage context object if -resume
                 if($resume)
                 {
@@ -1544,18 +1570,21 @@ foreach($srcVM in $resourceGroupVMs)
                 Get-BlobCopyStatus -Context $diskStorageContext -containerName $diskContainerName -BlobName $diskBlobName
              
             }
+          
 
-            # determine if managed disk are used by checking OSdisk and use apppropiate attach method for the datadisk
-	        if($srcVM.storageprofile.osdisk.vhd)
+            # determine if managed disk are used and use apppropiate attach method 
+	        if($disk.vhd)
             {
                 Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -DiskSizeInGB $DiskSizeGB -Lun $dataDiskLUN -VhdUri $dataDiskUri -Caching $diskCaching -CreateOption $CreateOption | out-null
             }
-            elseif($srcVM.storageprofile.osdisk.manageddisk)
+            elseif($disk.manageddisk)
             {
-                # $mdisk = Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName
-                 # Write-Host ('Disk Provisioning State -> [ ' + ($mdisk.ProvisioningState) + ' ]')
-                $dataDiskId = (Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName).id
-                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -Lun $dataDiskLUN -ManagedDiskId $dataDiskId -Caching $diskCaching -CreateOption $CreateOption | out-null
+                
+                $mdDataDisk = Get-AzureRmDisk -ResourceGroupName $resourceGroupName -DiskName $dataDiskName
+                # Write-Host ('Disk Provisioning State -> [ ' + ($mdDataDisk.ProvisioningState) + ' ]')
+                $dataDiskId = $mdDataDisk.id
+                $dataDiskSku = $mdDataDisk.sku.Name
+                Add-AzureRmVMDataDisk -VM $VirtualMachine -Name $dataDiskName -Lun $dataDiskLUN -ManagedDiskId $dataDiskId -StorageAccountType $dataDiskSku -Caching $diskCaching -CreateOption $CreateOption | out-null
             }
             
         }
