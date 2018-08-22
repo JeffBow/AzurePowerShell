@@ -14,7 +14,7 @@ Change to [x] for each task in the task list that applies to this PR.
 Fixes #
 
 **Task list:**
--- [] Added/updated documentation, comment-based help and descriptions where appropriate?
--- [] New/changed code adheres to [Style Guidelines](https://github.com/PowerShell/DscResources/blob/master/StyleGuidelines.md)?
+- Added/updated documentation, comment-based help and descriptions where appropriate?
+- New/changed code adheres to [Style Guidelines](https://github.com/PowerShell/DscResources/blob/master/StyleGuidelines.md)?
 
 @JeffBow
