@@ -11,7 +11,7 @@ Change to [x] for each task in the task list that applies to this PR.
 **Pull Request (PR) description:**
 
 **This Pull Request (PR) fixes the following issues:**
-Fixes #
+Fixes Issue #
 
 **Task list:**
 - Added/updated documentation, comment-based help and descriptions where appropriate?
