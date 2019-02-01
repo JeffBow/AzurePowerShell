@@ -680,7 +680,8 @@ if(! $resume)
     # create temporary blob storage account to stage managed disks that will be copied 
     if($newLocation -and $location -ne $srcLocation -and $resourceGroupManagedDisks)
     {
-        if($resourceGroupName.Length -gt 16){$first16 = $resourceGroupName.Substring(0,16)}else{$first16 = $resourceGroupName }
+        $cleanResourceGroupName = $resourceGroupName -replace "[^a-z0-9]", ""
+        if($resourceGroupName.Length -gt 16){$first16 = $cleanResourceGroupName.Substring(0,16)}else{$first16 = $cleanResourceGroupName }
         [string] $guid = (New-Guid).Guid
         [string] $tempStorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
 
