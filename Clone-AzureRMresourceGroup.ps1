@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Clones Azure V2 (ARM) resources from one resource group into a new resource group in the same Azure Subscriptions 
-    Requires AzureRM module version 4.2.1 or later.
+    Requires AzureRM module version 6.7 or later.
     
 .DESCRIPTION
    Copies configurations of a resource group into a new one
@@ -91,8 +91,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 import-module AzureRM 
 
-if ((Get-Module AzureRM).Version -lt "6.0.1") {
-   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.0.1 required. Run Update-Module AzureRM"
+if ((Get-Module AzureRM).Version -lt "6.7") {
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.7 required. Run Update-Module AzureRM"
    BREAK
 }
 

@@ -2,7 +2,7 @@
 .SYNOPSIS
     Copies Azure V2 (ARM) resources from one Azure Subscription to another.  
     Unlike the Move-AzureRMresource cmdlet, this script allows you to move between subscriptions in different Tenants and 
-    different Azure Environments.
+    different Azure Environments. Requires AzureRM module version 6.7 or later.
     
 .DESCRIPTION
    Copies configurations of a resource group in one subscription and provisions them in the target subscription.
@@ -120,7 +120,7 @@ $ProgressPreference = 'SilentlyContinue'
 import-module AzureRM 
 
 if ((Get-Module AzureRM).Version -lt "6.7.0") {
-   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.0.1 required. Run Update-Module AzureRM"
+   Write-warning "Old version of Azure PowerShell module  $((Get-Module AzureRM).Version.ToString()) detected.  Minimum of 6.7 required. Run Update-Module AzureRM"
    BREAK
 }
 
@@ -820,15 +820,18 @@ if(! $resume)
     # create temporary blob storage account to stage managed disks that will be copied 
     if($resourceGroupManagedDisks)
     {
+        $cleanResourceGroupName = $resourceGroupName -replace "[^a-z0-9]", ""
+
         if($resourceGroupName.Length -gt 16)
         {
-            $first16 = $resourceGroupName.Substring(0,16)
+            $first16 = $cleanResourceGroupName.Substring(0,16)
         }
         else
         {
-            $first16 = $resourceGroupName 
+            $first16 = $cleanResourceGroupName 
         }
-        
+
+           
         [string] $guid = (New-Guid).Guid
         [string] $tempStorageAccountName = "$($first16.ToLower())"+($guid.Substring(0,8))
 
